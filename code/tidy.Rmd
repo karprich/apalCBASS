@@ -1,0 +1,660 @@
+---
+title: "Apal CBASS Data Tidy"
+author: "RK"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE, cache = TRUE, tidy=TRUE, prompt=FALSE, fig.width=6, fig.asp=.618, out.width='70%', fig.align='center') 
+```
+
+```{r load libraries}
+#Tidy Data and Easy Wrangling
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(readxl)
+library(lubridate)
+library(devtools)
+library(magrittr)
+library(purrr)
+library(janitor)
+
+#Rolling averages
+library(zoo)
+
+
+#additional plotting
+library(RColorBrewer)
+library(scales)
+library(ggfortify)
+library(gridExtra)
+library(ggthemes)
+library(cowplot)
+library(ggrepel)
+library(ggpubr)
+library(ggtext)
+library(ggh4x)
+library(ggprism)
+# Tables
+library(kableExtra)
+library(knitr)
+
+#qPCR
+library(steponeR)
+#ipam
+library(IPAM2R)
+library(ipamScripts)
+
+#Basic Stats
+library(broom)
+library(rstatix)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+##Deming
+library(mcr)
+library(MASS)
+library(quantreg)
+
+#Advanced Stats
+library(drc)
+library(ggfortify) #help plotting higher level function
+library(lme4)
+library(lmerTest)
+library(gamm4)
+library(FactoMineR) #PCA
+
+library(effects)
+library(metafor)
+library(vegan)
+
+
+
+#plot 3d
+#library(plot3D)
+library(plotly)
+
+#maps
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(parzer)
+library(spdep)
+library(measurements)
+
+
+
+theme_present <- function(fontSize=16){
+  theme_few(base_size = fontSize, base_family = 'Palatino')  +
+    theme(
+    panel.background = element_rect(fill='transparent'), #transparent panel bg
+    plot.background = element_rect(fill='transparent', color=NA), #transparent plot bg
+    panel.grid.major = element_blank(), #remove major gridlines
+    panel.grid.minor = element_blank(), #remove minor gridlines
+    legend.background = element_rect(fill='transparent'), #transparent legend bg
+    legend.box.background = element_rect(fill='transparent') #transparent legend panel
+    )
+}
+
+###Make pretty table
+#kable() %>%
+#   kable_styling(bootstrap_options = c('striped', 'hover', 'condensed'), full_width = FALSE)\
+
+#change working directory
+setwd("~/Documents/GradSchool/PhD/Projects/apalCBASS/code")
+
+```
+
+## Temperature data
+
+
+### Correct HOBO temperatures based on calibrations
+
+```{r}
+#read in calibration thermometer temps and time
+calibrationTemp <- read_excel("../data/Environment/Calibrations/calibrationProbe.xlsx")%>%
+  mutate(dateTime=ymd_hm(paste0(Date, " ", hour(Time),":", minute(Time))),
+         lowTime=dateTime-minutes(2),highTime=dateTime+minutes(2)) %>%
+  dplyr::select(-Date, -Time) %>%
+  rename(calTemp=Temp)
+
+#read in hobo files from calibration dates
+hoboFilesCal <- list.files("../Data/Environment/Calibrations/hobos", pattern = "*.csv", recursive = F, full.names = T)
+
+#tidy hobo data and combine together
+names(hoboFilesCal) <- paste0(str_sub(basename(hoboFilesCal), 1, 4))
+
+hoboSnCal <- map_df(hoboFilesCal, read_csv, .id="Tank", col_names="sn", n_max=1) %>%
+  mutate(sn=str_extract(sn, pattern="[0-9]+"))
+
+hoboDataCal <- map_df(hoboFilesCal, read_csv, .id = "Tank", col_names=c("Date", "Temp", "Light", NA), skip=3) %>%
+  separate(Tank, sep = "C", into = c("Tank", "misc")) %>%
+  mutate(Date=ymd_hms(Date)) %>%
+  dplyr::select(Date, Tank, Temp, Light)%>%
+  mutate(Run="cal", Tank=str_remove(Tank, " 2"),
+         roundDate=floor_date(Date, "minute"))
+
+#get data only when time was the same
+hoboDataCalShort <- hoboDataCal%>%
+  left_join(., calibrationTemp, by=join_by(between("roundDate", "lowTime", "highTime"))) %>%
+  filter(!is.na(lowTime)) %>%
+  mutate(offset=Temp-calTemp)
+
+#get average hobo offset
+hoboCal <- hoboDataCalShort%>%
+  group_by(Tank)%>%
+  filter(!is_outlier(offset))%>%
+  get_summary_stats(offset, type="mean_se") %>%
+  mutate(Tank=as.numeric(Tank)) %>%
+  rename(offset=mean)
+```
+
+
+## Read in HOBO files
+### Read in HOBO files run one
+
+```{r hobos first run}
+#need to correct hobos for actual tempk, but this will do for now!!
+
+hoboFiles <- list.files("../data/Environment/HobosAll/HoboRunOne", pattern="*.csv", full.names = TRUE, recursive = T)
+names(hoboFiles) <- paste0(str_sub(basename(hoboFiles), 1, 4))
+
+hoboSnOne <- map_df(hoboFiles, read_csv, .id="Tank", col_names="sn", n_max=1) %>%
+  mutate(sn=str_extract(sn, pattern="[0-9]+"))
+
+hoboData <- map_df(hoboFiles, read_csv, .id = "Tank", col_names=c("Date", "Temp", "Light", NA), skip=3) %>%
+  separate(Tank, sep = "C", into = c("Tank", "misc")) %>%
+  mutate(Date=ymd_hms(Date)) %>%
+  dplyr::select(Date, Tank, Temp, Light)%>%
+  mutate(Run=1)
+
+#run one holds 1700-2000: 06/08/2022, get run one hold temperature times
+runOneHobo <- hoboData %>%
+  filter(Date>=ymd_hm("2022-06-08 10:00")&Date<ymd_hm("2022-06-08 22:00"))
+
+meanHoldRunOne <- runOneHobo %>%
+  filter(hour(Date)>=17 &hour(Date)<20, Temp>28) %>%
+  group_by(Tank)%>%
+  get_summary_stats(Temp)%>%
+  ungroup() %>%
+  mutate(Run=1)
+
+```
+
+### Read in HOBO files runs 2-4
+
+```{r hobos rest of runs }
+hoboFiles <- list.files("../Data/Environment/HobosAll/HoboRunTwo_Four", pattern="*.csv", full.names = TRUE, recursive = T)
+names(hoboFiles) <- paste0(str_sub(basename(hoboFiles), 1, 6))
+
+hoboSnRest <- map_df(hoboFiles, read_csv, .id="Tank", col_names="sn", n_max=1) %>%
+  mutate(sn=str_extract(sn, pattern="[0-9]+"))
+
+
+
+hoboData <- map_df(hoboFiles, read_csv, .id = "Tank", col_names=c("Date", "Temp", "Light", NA), skip=3) %>%
+  separate(Tank, sep = "C", into = c("Tank", "misc")) %>%
+  mutate(Date=ymd_hms(Date)) %>%
+  dplyr::select(Date, Tank, Temp, Light)%>%
+  mutate(Run=case_when(date(Date)=="2022-06-13"~6,
+    date(Date)=="2022-06-14"~2,
+                       date(Date)=="2022-06-15"~3,
+                       date(Date)=="2022-06-16"~4,
+                       date(Date)=="2022-06-17"~5))
+
+
+#temp profiles from1600-1900 for holds
+#on dates: 6/14, 6/15, 6/16, 6/17
+
+#Make function for mean hold time based on date
+meanHoldTime <- function(run, date){ #date format: yyyy-mm-dd
+  runData <- hoboData %>%
+  filter(Date>=ymd_hm(paste0(date, " 10:00"))&Date<ymd_hm(paste0(date, " 22:00")))
+  
+  meanRunHold <- runData %>%
+  filter(hour(Date)>=16 &hour(Date)<17, Temp>28) %>%
+  group_by(Tank)%>%
+  get_summary_stats(Temp)%>%
+  ungroup() %>%
+  mutate(Run=run, Date=date)
+  
+  return(meanRunHold)
+}
+
+meanHoldRunTwo <- meanHoldTime(2, "2022-06-14")
+meanHoldRunThree <-  meanHoldTime(3, "2022-06-15")
+meanHoldRunFour <-  meanHoldTime(4, "2022-06-16") %>% #switch 32 and 37 hobos, since they were in wrong tank for this run
+  mutate(Tank=ifelse(Tank=="32", "to37", Tank), 
+         Tank=ifelse(Tank=="37", "to32", Tank),
+         Tank=ifelse(Tank=="to32", "32", Tank),
+         Tank=ifelse(Tank=="to37", "37", Tank))
+meanHoldRunFive <-  meanHoldTime(5, "2022-06-17")
+
+
+```
+
+```{r plot all temperatures}
+
+tempProfile%>%
+  filter(time>=ymd_hm("1900-01-01 10:00")&time<=ymd_hm("1900-01-01 23:00")) %>%
+  #filter(hour(time)>9, hour(time)<23)%>%
+ggplot(., aes(time, temp))+
+  geom_line(aes(color=tank), size=1.2) +
+  theme_present() +
+  labs(x="Time", y="Temperature (°C)") +
+  scale_x_datetime(date_labels = "%H", breaks = "2 hour") +
+  scale_y_continuous(limits = c(30, 40), breaks = seq(28, 40, by=2)) +
+  theme(legend.position = "none") +
+  #scale_color_manual(values = c("#ABD9E9", "#E0F3F8","#FFFFBF", "#FEE090", 
+   #                  "#FDAE61", "#F46D43", "#D73027", "#A50026")) 
+  #scale_color_brewer(palette = "Reds")
+  scale_color_manual(values = c("#FEE0D2", "#FCBBA1", "#FC9272", "#FB6A4A", "#EF3B2C", "#CB181D", "#A50F15", "#67000D"))
+  #first eight of RdYlBu Rcolorbrewer
+
+#make theoretical temperature profiles for each day
+tempProfileFig <- tempProfile%>%
+  mutate(date=ymd_hms(time)) %>%
+  mutate(`1`=ymd_hm(paste("2022/06/08", hour(date), minute(date))),
+         `2`=ymd_hm(paste("2022/06/14", hour(date), minute(date))),
+         `3`=ymd_hm(paste("2022/06/15", hour(date), minute(date))),
+         `4`=ymd_hm(paste("2022/06/16", hour(date), minute(date))),
+         `5`=ymd_hm(paste("2022/06/17", hour(date), minute(date))))%>%
+  #adjust cbass run one to be one hour later since it started one hour later
+  mutate(`1`=`1`+dhours(1))%>%
+  dplyr::select(-time, -date)%>%
+  pivot_longer(c(`1`, `2`, `3`,`4`, `5`), names_to = "Run", values_to = "Date") %>%
+  mutate(runName=paste0("CBASS Run: ", Run)) %>%
+  filter(Run!="5") %>%
+  arrange(Date, desc(temp))%>%
+  group_by(tank)%>%
+  filter(!duplicated(Date))%>%
+  ungroup() %>%
+  filter(hour(Date)>=13&hour(Date)<=20)
+
+#combine data for all hobos and smooth
+allHob <- bind_rows(runOneHobo, hoboData) %>%
+  filter(Tank!="34.5_2")%>% #filter out additional hobo in 34.5 tank
+  group_by(Tank)%>%
+  mutate(smooth=rollmean(Temp, k=15, align="center", fill=Temp)) %>%
+  ungroup()%>%
+  mutate(smooth=ifelse(is.na(smooth), Temp, smooth), runName=paste0("CBASS Run: ", Run),
+         newTank=case_when(Run==4&Tank=="37"~"32",
+                           Run==4&Tank=="32"~"37",
+                           Tank=="34.5_1"~"34.5",
+                        
+                           TRUE~Tank))
+
+#plot temperature profiles for each run
+allHob %>%
+  filter(Run<5)%>% #take out run 5 since not Apal
+  filter(hour(Date)>=13&hour(Date)<=20)%>%
+ggplot(., aes(Date, smooth))+
+  geom_line(aes(color=newTank), linewidth=1.2) +
+  geom_line(data=tempProfileFig, inherit.aes=F, aes(x=Date, y=temp,color=tank),lty = 2, linewidth=1.2)+
+  scale_x_datetime(breaks = "2 hour", date_labels = "%H")+
+  facet_wrap(~runName, scales = "free_x") +
+  theme_present(18)+
+  labs(y="Temperature (ºC)", x="Hour") +
+  theme(legend.position = "none") +
+  scale_y_continuous(limits = c(29.5, 40), breaks = seq(30, 40, 2))+
+  scale_color_manual(values = c("#FEE0D2", "#FCBBA1", "#FC9272", "#FB6A4A", "#EF3B2C", "#CB181D", "#A50F15", "#67000D"))
+
+ggsave("../outputs/hoboTemps.png", width=8)
+
+```
+
+### Plot HOBO calculated hold temperatures against theoretical hold temperatures
+
+```{r check hobo sn and get temperatures}
+
+#combine all hold temps into one data frame to  determine mean hold temperature
+meanHoldTemp <- bind_rows(meanHoldRunOne, meanHoldRunTwo, meanHoldRunThree, meanHoldRunFour, meanHoldRunFive) %>%
+  dplyr::select(Run, Tank, maxTemp=mean) %>%
+  filter(Tank!="34.5_2") %>% #Remove tank 34.5_2 since gives similar temps as 34.5_1 
+  mutate(Tank=ifelse(Tank=="34.5_1", "34.5", Tank),
+         Tank=as.numeric(Tank)) %>%
+  left_join(., hoboCal, by="Tank") %>%
+  #change offset for days hobos were switched
+  mutate(offset=case_when(Tank==32&Run==4~-.016,
+                          Tank==37&Run==4~.211,
+                          TRUE~offset))%>%
+  mutate(realTemp=maxTemp-offset)
+#plot average hold temperature vs theoretical temperature
+ggplot(filter(meanHoldTemp, Run<5), aes(Tank, maxTemp))+
+  geom_smooth(method="glm", se=F)+
+  geom_point(aes(fill=as.factor(Run)), alpha=0.5, pch=21, size=3) +
+  theme_present(18)+
+  labs(fill="CBASS Run", x="Set Tank Temperature (ºC)", y="Average Hold Temperature (ºC)") +
+  theme(legend.position = "bottom")  +
+  guides(fill=guide_legend(nrow=2))+
+  scale_x_continuous(limits=c(30, 38.3))+
+  scale_y_continuous(limits=c(30, 38.3))+
+  stat_regline_equation(size=6, family="Palatino")
+
+#ggsave("../outputs/hoboTempsMeanHold.png", width=8)
+```
+
+## Read in iPAM data
+
+```{r CBASS Run 1}
+#6/8/2022
+number=1
+ipamData<- ipamImport(paste0("../Data/Ipam/", number, "_Ipam/Data/"), key = NULL) %>%
+  mutate(Date=dmy(Date)) 
+
+key <- read_excel(paste0("../Data/Ipam/", number, "_Ipam/key.xlsx"))
+runOneAois <- meta %>%
+  filter(`CBASS Run`==number) %>%
+  dplyr::select(cbassNumber,genetNumber,Nursery, rackColor,Origin, Genet, positionNumber, Species, Treatment, galaxyCall)%>%
+  slice(rep(1:n(), each=2)) %>%
+  dplyr::group_by(rackColor)%>%
+  mutate(AOI=1:n()) %>%
+  ungroup()
+
+fullKey<- runOneAois %>%
+  left_join(key, runOneAois,by="rackColor") %>%
+  mutate(Picture=as.character(Picture))
+
+#combine key and ipam data
+combinedData <- right_join(fullKey, ipamData, by=c("Picture"="file", "AOI")) %>%
+  mutate(Tank=as.character(Tank))
+
+#assign data to dataframe
+assign(paste0("cbass_", number),combinedData)
+
+```
+
+```{r CBASS Run 2}
+#6/14/2022
+number=2
+ipamData<- ipamImport(paste0("../Data/Ipam/", number, "_Ipam/Data/"), key = NULL) %>%
+  mutate(Date=dmy(Date)) 
+
+key <- read_excel(paste0("../Data/Ipam/", number, "_Ipam/key.xlsx"))
+runAois <- meta %>%
+  filter(`CBASS Run`==number) %>%
+  dplyr::select(cbassNumber,genetNumber,Nursery, rackColor,Origin, Genet, positionNumber, Species, Treatment, galaxyCall)%>%
+  slice(rep(1:n(), each=2)) %>%
+  dplyr::group_by(rackColor)%>%
+  mutate(AOI=1:n()) %>%
+  ungroup()
+
+fullKey<- runAois %>%
+  left_join(key, runOneAois,by="rackColor") %>%
+  mutate(Picture=as.character(Picture))
+
+combinedData <- right_join(fullKey, ipamData, by=c("Picture"="file", "AOI")) %>%
+  mutate(Tank=as.character(Tank))
+
+assign(paste0("cbass_", number),combinedData)
+#no pink rack at 37
+
+```
+
+```{r CBASS Run 3}
+#6/15/2022
+number=3
+ipamData<- ipamImport(paste0("../Data/Ipam/", number, "_Ipam/Data/"), key = NULL) %>%
+  mutate(Date=dmy(Date)) 
+
+key <- read_excel(paste0("../Data/Ipam/", number, "_Ipam/key.xlsx"))
+runAois <- meta %>%
+  filter(`CBASS Run`==number) %>%
+  dplyr::select(cbassNumber,genetNumber,Nursery, rackColor,Origin, Genet, positionNumber, Species, Treatment, galaxyCall)%>%
+  slice(rep(1:n(), each=2)) %>%
+  dplyr::group_by(rackColor)%>%
+  mutate(AOI=1:n()) %>%
+  ungroup()
+
+fullKey<- runAois %>%
+  left_join(key, runOneAois,by="rackColor") %>%
+  mutate(Picture=as.character(Picture))
+
+table(fullKey$Tank, fullKey$rackColor)
+
+
+combinedData <- right_join(fullKey, ipamData, by=c("Picture"="file", "AOI")) %>%
+  mutate(Tank=as.character(Tank))
+
+assign(paste0("cbass_", number),combinedData)
+
+```
+
+```{r CBASS Run 4}
+#6/16/2022
+number=4
+ipamData<- ipamImport(paste0("../Data/Ipam/", number, "_Ipam/Data/"), key = NULL) %>%
+  mutate(Date=dmy(Date)) 
+
+key <- read_excel(paste0("../Data/Ipam/", number, "_Ipam/key.xlsx"))
+runAois <- meta %>%
+  filter(`CBASS Run`==number) %>%
+  dplyr::select(cbassNumber,genetNumber,Nursery, rackColor,Origin, Genet, positionNumber, Species, Treatment, galaxyCall)%>%
+  slice(rep(1:n(), each=2)) %>%
+  dplyr::group_by(rackColor)%>%
+  mutate(AOI=1:n()) %>%
+  ungroup()
+
+fullKey<- runAois %>%
+  left_join(key, runOneAois,by="rackColor") %>%
+  mutate(Picture=as.character(Picture))
+
+table(fullKey$Tank, fullKey$rackColor)
+
+
+combinedData <- right_join(fullKey, ipamData, by=c("Picture"="file", "AOI")) %>%
+
+  filter(Picture!=27)%>% #rack already pammed previously
+  mutate(Tank=as.character(Tank))
+
+assign(paste0("cbass_", number),combinedData)
+
+```
+
+```{r combine pam data}
+#combine pam data and save out
+allDat <-bind_rows(cbass_1, cbass_2, cbass_3, cbass_4) %>%
+  filter(!is.na(Tank)) %>%
+  mutate(Tank=as.numeric(Tank))
+
+#saveRDS(allDat, file="../data/inputs/rawPam.rds")
+
+```
+
+### QC Ipamdata
+
+```{r combine pam data }
+#read in pam data
+allDat <- readRDS("../data/inputs/rawPam.rds")
+
+#set filtering parameters
+correctTemp=T #correct temperature for real temperuatre
+correctRunOne =T #correct run one 34.5 tank
+preTankCorrect=F #remove extraneous outlier points before plotting
+
+#get mean of 34.5 tank fro 2, 3, 4, and assign it to day one as HOBO values were incorrect perhaps due to light
+mean345Tank <- meanHoldTemp%>%
+  filter(Run%in% c(2, 3, 4)&Tank==34.5) %$%
+  mean(realTemp)
+
+if(correctRunOne){
+  
+  tempCorrect <- meanHoldTemp %>%
+    mutate(realTemp=case_when(Run==1 &Tank==34.5~mean345Tank,
+                              TRUE~realTemp))
+}else{
+  tempCorrect=meanHoldTemp
+}
+
+if(correctTemp){
+  allDat <- allDat %>% 
+  left_join(., tempCorrect, by=c("cbassRun"="Run", "Tank"))
+}else{
+  allDat %<>%mutate(maxTemp=as.numeric(Tank))
+}
+
+  
+#remove tank 32 from run 1 as temp spiked hot prior to ipam
+if(preTankCorrect){
+  allDat <- allDat %>%
+  filter(cbassRun!=1|Tank!=32) %>%
+  group_by(cbassRun, Tank, Nursery)%>%
+  filter(!is_outlier(Y)) %>%
+  ungroup()
+}else{
+  allDat <- allDat %>%
+  filter(cbassRun!=1|Tank!=32)
+}
+
+
+```
+
+## Fit Dose response curves 
+
+```{r fit models, echo=FALSE}
+set.seed(1010)
+
+
+ll3 <- function(data) {
+  drc::drm(Y ~ realTemp, data = data, 
+      fct = LL.3(names = c("hill", "max", "ED50")),
+      upperl = c(120, 0.65, 50),
+      lowerl = c(10, 0.35, 30))}
+tryll3 <- possibly(ll3, otherwise = NULL)
+# Fit model to each coral, get parameters, fitted values, and residuals
+initmods <- allDat %>%
+  dplyr::select(cbassNumber, Y, realTemp) %>%
+  nest(data = c(realTemp, Y)) %>%
+  # Fit the model to each coral
+  mutate(ll3 = map(data, tryll3)) %>%
+  # Get model parameters and fitted values/residuals
+  mutate(pars = map(ll3, tidy),
+         pred = map2(ll3, data, ~augment(.x, drop_na(.y, Y))))
+# Extract ed50 parameter values from model fits
+ed50 <- initmods %>% 
+  dplyr::select(cbassNumber, pars) %>%
+  unnest(pars) %>%
+  filter(term == "ED50") %>%
+  mutate(type="raw")
+
+
+# Collect raw data, fitted values, and diagnostics
+vals <- initmods %>%
+  dplyr::select(cbassNumber, pred) %>%
+  unnest(pred) %>%
+  full_join(ed50, by=c("cbassNumber")) %>%
+  rename(ed50=estimate)
+  
+```
+
+### Refit models based on Cook's distance
+
+```{r qc ed50s based on cook's outliers}
+# Identify problematic data points based on cook's distance and residuals
+counts <- vals %>% 
+  group_by(cbassNumber) %>% 
+  summarise(n = sum(!is.na(Y)))
+dff <- vals %>%
+  left_join(counts) %>%
+  group_by(cbassNumber) %>% 
+  mutate(resid.thresh = 2*sd(.resid, na.rm = T)) %>%  # Calculate residual threshold as 2 standard deviations
+  mutate(cooksd.thresh = 4/n) %>%   # Calculate cook's distance threshold as 4/n
+  mutate(max_to_remove = floor(n * 0.2)) %>%
+  ungroup() %>%
+  mutate(problem = case_when(.cooksd > cooksd.thresh & .resid > 0 ~ "high cook's distance",
+                             .resid > resid.thresh ~ "high residual", 
+                             TRUE ~ NA)) %>%
+  group_by(cbassNumber, outlier = problem %in% c("high cook's distance", "high residual")) %>%
+  mutate(n.outliers = n(),
+         rank.out = order(.cooksd, decreasing = TRUE)) %>%
+  ungroup() %>%
+  mutate(Y = case_when(outlier & rank.out <= max_to_remove ~ NA_real_, 
+                          TRUE ~ Y)) 
+
+table(dff$cbassNumber,dff$outlier==TRUE)
+# Refit models without problematic points
+fmods <- dff %>%
+  dplyr::select(cbassNumber, Y, realTemp,problem) %>%
+  nest(data = c(realTemp, Y, problem)) %>%
+  # Fit the model to each coral
+  mutate(ll3 = map(data, tryll3)) %>%
+  # Get model parameters and fitted values/residuals
+  mutate(pars = map(ll3, tidy),
+         pred = map2(ll3, data, ~augment(.x, drop_na(.y, Y))))
+
+# Extract ed50 parameter values from model fits
+fed50 <- fmods %>% 
+  select(cbassNumber, pars) %>%
+  unnest(pars) %>%
+  filter(term == "ED50") %>%
+  mutate(type="corrected")
+
+# Collect raw data, fitted values, and ed50 estimates
+fvals <- fmods %>%
+  select(cbassNumber, pred) %>%
+  unnest(pred) %>%
+  full_join(fed50) %>%
+  #full_join(select(dff, nursery, geno, max_temp, f, fm, fvfmraw, problem, fvfm)) %>%
+  rename(ed50 = estimate)
+
+#save corrected ed50 values for analysis
+#saveRDS(allDat, file="../data/inputs/ed50Values.rds")
+```
+
+## Q-PCR data
+
+```{r read in qpcr}
+library(qPCRFunctions)
+
+#read in a plates
+aRes <- qPCRFunctions::readPlatesHost("../data/qpcr/csv", sybrA = T)
+#read in ad plates
+adRes <- readPlatesHost("../data/qpcr/csv/ADplates")
+
+#bind plates
+allPlates <- bind_rows(aRes, adRes)
+
+#calculate proportions and sh
+sh <- qPCRFunctions::calcPropHost(allPlates, checkSd = 1.2, domThreshold = 0.75) %>%
+  mutate(sampleName=str_replace(sampleName,"Cr2_Apal", "CR2Apal")) %>%
+  separate(sampleName, into = c('experiment', "temperature", "sample", "extra"), remove = F) 
+
+#filter out duplicates and clean up data frame
+sh %<>%  filter(totalSym>0.9)%>%
+  mutate(experiment=str_to_upper(experiment)) %>%
+  filter(str_detect(experiment, "CR2"))%>%
+  arrange(desc(fileName), desc(extra)) %>%
+  mutate(temperature=ifelse(temperature=="30", "30C", temperature),
+         sample=as.numeric(sample))%>%
+  group_by(temperature)%>%
+  #remove extreme sh values
+  filter(!is_extreme(log10(sh)))%>%
+  ungroup()%>%
+  group_by(sample,temperature)%>%
+  filter(!duplicated(sample)) %>%
+  ungroup() %>%
+  #filter(str_detect(Experiment, "CR2Apal"))%>%
+  mutate(sample=as.numeric(sample)) %>%
+  dplyr::select(fileName, sampleName,temperature, sample, sh,totalSym, propD, propA,dom,dom, background)
+
+#bind qpcr to meta data
+qpcrDat <- meta %>%
+  dplyr::select(cbassRun=`CBASS Run`, nursery=Nursery, galaxyCall, genetNumber, cbassNumber)%>%
+  right_join(.,sh, by=c("genetNumber"="sample")) %>%
+  filter(temperature!="RE", !is.na(nursery)) %>%
+  #remove mote values that are only on A plates and not ad plates
+  filter(!(nursery=="Mote"&dom=="A")) %>%
+  mutate(temp=as.numeric(str_sub(temperature, 1, 2)), logSh=log10(sh))%>%
+  group_by(temperature)%>%
+  #filter(!is_extreme(log10(sh)))%>%
+  ungroup()
+#save QCed qpcr data for analysis
+#saveRDS(qpcrDat, file="../data/inputs/qpcrDat.rds")
+```
+
+

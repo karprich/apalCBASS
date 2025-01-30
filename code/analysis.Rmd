@@ -139,7 +139,19 @@ meta <- meta %>%
   #add count of unique genos base on name
   add_count(galaxyCall) 
 
+apalCollectionDates <- read_excel("../data/metadata/apalDates.xlsx", col_types = c("date", "numeric")) %>%
+  filter(!is.na(collectionDate)) %>%
+  mutate(collectionDate=ymd(collectionDate))
 
+apalCollectionDates <- meta%>%
+  filter(cbassNumber<=84)%>%
+  dplyr::select(cbassNumber, collectionDate) %>%
+  mutate(collectionDate=ymd(collectionDate))%>%
+  bind_rows(., apalCollectionDates)
+
+min(apalCollectionDates$collectionDate, na.rm = T)
+max(apalCollectionDates$collectionDate, na.rm = T)
+mean(apalCollectionDates$collectionDate, na.rm = T)
 ```
 
 ```{r set custom colors}
@@ -201,7 +213,7 @@ ggplot(data = world) +
   geom_sf(lwd = 0, fill = "gray90") +
   coord_sf(expand = FALSE) +
   geom_label_repel(dat = loc, aes(x = lon, y = lat, label = nursery, fill = Nursery),
-                   label.padding = 0.125,
+                   label.padding = 0.25,
                    size = 5,
                    force = 2, segment.size = 0.3, segment.color = "black", min.segment.length = 0,
                    direction = "both", hjust = 0.5, vjust = 0.5,
@@ -211,8 +223,9 @@ ggplot(data = world) +
   scale_x_continuous(limits = c(-82, -79.88)) +
   theme_present()+
   
- geom_point(data=siteGpsPoints, aes(x=Lon, y=Lat, fill=Nursery), pch=23, alpha=0.5, show.legend = F, size=3.5)+
+ geom_point(data=siteGpsPoints, aes(x=Lon, y=Lat), pch=21, alpha=0.5, show.legend = F, size=3.5, fill="#566246")+
   geom_point(data = loc, aes(x = lon, y = lat, fill=Nursery, shape=Nursery), size = 5, stroke = 0.3, alpha=0.7, show.legend = T) +
+  
   scale_shape_manual(values=c(23, 25, 23, 23), name="Nursery",
                      labels=  c("In situ: CRF",  "Ex situ: MML", "In situ: RR",  "In situ: UM"))+ #change this number
   annotate(geom = "point", x = -80.1918, y = 25.7617, size = 2) +
@@ -232,7 +245,7 @@ ggplot(data = world) +
   labs(y = "Latitude", x = "Longitude") 
 
 #save map 
-#ggsave("../outputs/siteMap.png", width=10, height=10)
+#ggsave("../outputs/siteMap_1.png", width=10, height=10)
 
 
 ```
@@ -258,7 +271,7 @@ meta %>%
 meta %>%
   filter(str_detect(Species, "palm")) %$%
   table(Nursery) %>% 
-  kable(col.names = c('Nursery', 'Number of Genets'), caption = 'Breakdown of genets by nursery for 172 assessed') %>%
+  kable(col.names = c('Nursery', 'Number of Colonies'), caption = 'Breakdown of genets by nursery for 172 assessed') %>%
   kable_styling(bootstrap_options = c('striped', 'hover', 'condensed'), full_width = FALSE)
 
 #Number of genets assessed more than once based on name
@@ -296,6 +309,15 @@ meta %>%
   arrange(desc(n))%>%
   filter(n>1)%$% 
   table(n)
+
+meta %>%
+  filter(str_detect(Species, "palm")) %>%
+  group_by(Nursery, galaxyCall)%>%
+  summarise(n=n())%>%
+  ungroup() %>%
+  arrange(desc(n))%$%
+  #filter(n>1)%$% 
+  table(Nursery, n)
   
 
 ```
@@ -305,7 +327,8 @@ meta %>%
 Get proportions of A and D for each colony at control temperature (30C)
 ```{r qpcr proportions}
 #read in qpcr data
-qpcrDat <- readRDS(file="../data/inputs/qpcrDat.rds") 
+qpcrDat <- readRDS(file="../data/inputs/qpcrDat.rds") %>%
+  mutate(background=ifelse(propD>0.5&propA>0, "A", background))
 #pivot longer and clean up for plotting proportional bar plots
 propDf <- qpcrDat%>%
   #filter just control temperature
@@ -367,6 +390,8 @@ edShDat <- left_join(edData, qpcrDat, by=c("genetNumber")) %>%
   #filter out only control temps for sh
   filter(temp==30)
 
+
+
 ```
 
 ### Combine ED50 and SH data
@@ -374,28 +399,320 @@ edShDat <- left_join(edData, qpcrDat, by=c("genetNumber")) %>%
 
 ### Linear model of all main effects
 ```{r}
+
 #make linear model where small factors that are partially explained come first
 fullModel <- edShDat%>%
+  #filter(galaxyCall %in% multi.adj$galaxyCall)%>%
+  #filter(nursery!="MML")%>%
+  #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+  glm(ed50~logSh+nursery+galaxyCall, data=.)
+
+EMM <- emmeans(fullModel, ~ nursery)# , #cov.reduce = FALSE)
+ test(pairs(EMM), by = NULL, adjust = "bonferroni")
+
+ anova(fullModel, type="I")
+Anova(fullModel)
+summary(fullModel)
+varExplained(fullModel) #sums to .949 the multiple R2
+cld(emmeans(fullModel, ~galaxyCall))
+library(FSA)
+dunnTest(ed50~dom,
+         data=edShDat,
+         method="bonferroni")
+
+symModel <- edShDat%>%
+  #filter(nursery!="MML")%>%
+  #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+  lm(ed50~logSh+dom, data=.)
+cld(emmeans(symModel, ~dom))
+
+Anova(symModel)
+anova(symModel, type="I")
+
+summary(symModel)
+varExplained(symModel)
+
+ 
+fullModel <- edShDat%>%
+  #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
   glm(ed50~logSh+dom+nursery, data=.)
+
+#calcVarPart(fullModel)
 
 #test for statistical significance and determine variance explained
 summary(fullModel)
 anova(fullModel) #Type I Anova
+
 Anova(fullModel)
 varExplained(fullModel)
 
+fullModelGenet <- edShDat%>%
+  lm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+
+summary(fullModelGenet)
+Anova(fullModelGenet)
+varExplained(fullModelGenet)
+
+fullModelNoDom <- edShDat%>%
+  glm(ed50~logSh+nursery+galaxyCall, data=.)
+
+varExplained(fullModelNoDom)
+summary(fullModelNoDom)
+fullModelwDom <- edShDat%>%
+  glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+
+summary(fullModelwDom)
+varExplained(fullModelwDom)
+
+cld(emmeans(fullModelwDom, specs="dom"))
+
+#like genotype effect
+fullModmm <- edShDat%>%
+  lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
+#https://stats.stackexchange.com/questions/560533/how-to-get-the-proportion-variance-explained-by-each-predictor-in-an-lmer-mode
+cld(emmeans(fullModmm, "dom"))
+calcVarPart(fullModmm)
+summary(fullModmm)
+anova(fullModmm, type = "I")
+sum(residuals(fullModmm)^2)
+#total sum of squares
+totalSS <- sum(anova(fullModmm, type="I")[1])+sum(residuals(fullModmm)^2)
+#log sh
+anova(fullModmm, type="I")[1,1]/totalSS
+#dom
+anova(fullModmm, type="I")[2,1]/totalSS
+#nursery
+anova(fullModmm, type="I")[3,1]/totalSS
+
+anova(fullModmm, type="I")[3,1]/totalSS+anova(fullModmm, type="I")[2,1]/totalSS+anova(fullModmm, type="I")[1,1]/totalSS
+anovaTab <- anova(fullModmm, type = "I")
+print(anovaTab)
+varExplained(fullModmm)
+fullModmm@vcov_varpar
+
+library(partR2)
+#r2_partial(fullModmm)
+partR2::partR2(fullModmm, R2_type = "marginal")
+partR2::partR2(fullModmm, R2_type = "conditional")
+anova(fullModmm, type = "I")
+varExplained(fullModmm)
+
+cld(emmeans(fullModmm, specs="nursery"))
+justDomModel <- edShDat%>%
+  glm(ed50~logSh+dom, data=.)
+varExplained(justDomModel)
+# 
+library(lme4)
+library(variancePartition)
+calcVarPart(fullModmm, returnFractions = T)
+
+#https://cran.r-project.org/web/packages/partR2/vignettes/Using_partR2.html#:~:text=So%20Temperature%20and%20Precipitation%20each,Biomass%20(and%20vice%20versa).
+#r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"))
+r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom:nursery"))
+summary(r2)
+cld(emmeans(fullModmm, specs="nursery"))
+#because some genets were represented across multiple nurseries but not interested in testing specifically for the storngest genet so included as fixed
+
 #interaction model and get variance explained
 fullModelInteraction <- edShDat%>%
-  lm(ed50~logSh+nursery:dom, data=.)
+  glm(ed50~logSh+nursery, data=.)
 
 summary(fullModelInteraction) #get r-squared
+anova(fullModelInteraction, type="I")
 Anova(fullModelInteraction)
+varExplained(fullModelInteraction)
+
+fullDomInteraction <- edShDat%>%
+  glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+
+varExplained(fullDomInteraction)
+
 dropterm(fullModelInteraction)
 ```
+
+```{r}
+#mixed model
+fullModmm <- edShDat%>%
+  lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
+
+anova(fullModmm, type="I")
+Anova(fullModmm)
+
+library(partR2)
+#r2_partial(fullModmm)
+partR2::partR2(fullModmm, R2_type = "marginal")
+partR2::partR2(fullModmm, R2_type = "conditional")
+#cite cunning-explain to reviewer that we try a bunch of different ways, 
+
+#https://pmc.ncbi.nlm.nih.gov/articles/PMC8162244/#:~:text=While%20part%20R2%20quantifies,and%20jointly%20with%20other%20predictors.
+r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 100)
+summary(r2)
+cld(emmeans(fullModmm, specs="nursery"))
+cld(emmeans(fullModmm, specs="dom"))
+
+#int mod
+intModmm <- edShDat%>%
+  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
+  lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
+partR2::partR2(intModmm, R2_type = "marginal")
+partR2::partR2(intModmm, R2_type = "conditional")
+
+calcVarPart(intModmm, returnFractions = F)
+
+sum(residuals(intModmm)^2)
+anova(intModmm, type="I")
+anova(intModmm, type="II")[1]/(sum(anova(intModmm, type="II")[1])+sum(residuals(intModmm)^2))
+sum(residuals(intModmm)^2)/(sum(anova(intModmm, type="II")[1])+sum(residuals(intModmm)^2))
+summary(intModmm)
+
+
+
+r2int <- partR2(intModmm, R2_type = "marginal", data=edShDat, partvars = c("dom:nursery"), nboot = 100)
+summary(r2int)
+
+mergeR2(r2int, r2)
+
+nurseModmm1 <- edShDat%>%
+  mutate(nursery=as.numeric(factor(nursery, levels=c("MML", "CRF", "RR", "UM"))),
+                            dom=as.numeric(factor(dom, levels=c("D", "A")))) %>%
+  
+  lmer(ed50~logSh+dom+nursery+(1|galaxyCall), data=.)
+
+anova(nurseModmm1, type="I")
+Anova(nurseModmm1)
+
+
+partR2::partR2(nurseModmm1, R2_type = "marginal")
+partR2::partR2(nurseModmm1, R2_type = "conditional")
+
+r2Nurse1 <- partR2(nurseModmm1, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 10)
+summary(r2Nurse1)
+calcVarPart(nurseModmm1)
+
+r2Nurse1a <- partR2(nurseModmm1, data=edShDat, partbatch = list(logSh=c('logSh', "logSh:nursery"),
+                                                               nursery=c('nursery')), nboot = 10)
+
+summary(r2Nurse1a)
+
+nurseModmm2 <- edShDat%>%
+    mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
+  lmer(ed50~logSh+nursery+(1|galaxyCall), data=.)
+
+anova(nurseModmm2, type="I")
+Anova(nurseModmm2)
+
+calcVarPart(nurseModmm2)
+
+partR2::partR2(nurseModmm2, R2_type = "marginal")
+partR2::partR2(nurseModmm2, R2_type = "conditional")
+
+r2Nurse2 <- partR2(nurseModmm2, R2_type = "marginal", data=edShDat, partvars = c("logSh", "nursery"), nboot = 100)
+summary(r2Nurse2)
+
+mergeR2(r2Nurse1, r2Nurse2)
+
+domModmm <- edShDat%>%
+  lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
+
+summary(domModmm)
+partR2::partR2(domModmm, R2_type = "marginal")
+partR2::partR2(domModmm, R2_type = "conditional")
+
+domR2 <- partR2(domModmm, data=edShDat, partvars=c("logSh", "dom"), nboot = 100)
+summary(domR2)
+
+mergeR2(domR2, r2Nurse2)
+
+noLogMod <- edShDat%>%
+  lmer(ed50~nursery+(1|galaxyCall), data=.)
+
+calcVarPart(noLogMod)
+
+
+Anova(domModmm, nurseModmm2)
+
+#change factors to numeric
+nurseModmm1 <- edShDat%>%
+  mutate(nursery=as.numeric(factor(nursery, levels=c("MML", "CRF", "RR", "UM"))),
+                            dom=as.numeric(factor(dom, levels=c("D", "A")))) %>%
+  
+  lmer(ed50~logSh+dom+nursery+(1|galaxyCall), data=.)
+
+anova(nurseModmm1, type="I")
+Anova(nurseModmm1)
+
+
+partR2::partR2(nurseModmm1, R2_type = "marginal")
+partR2::partR2(nurseModmm1, R2_type = "conditional")
+
+r2Nurse1 <- partR2(nurseModmm1, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 10)
+summary(r2Nurse1)
+calcVarPart(nurseModmm1)
+`````````
+
+```{r}
+#mixed model way that works based on reviewer 3
+#int mod
+intModmm <- edShDat%>%
+  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
+  lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
+partR2::partR2(intModmm, R2_type = "marginal")
+partR2::partR2(intModmm, R2_type = "conditional")
+#genet explains .108
+
+r2int <- partR2(intModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom:nursery"), nboot = 10)
+summary(r2int)
+
+#same as nursery
+nurseryModmm <- edShDat%>%
+  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
+  lmer(ed50~logSh+nursery+(1|galaxyCall), data=.)
+partR2::partR2(nurseryModmm, R2_type = "marginal")
+partR2::partR2(nurseryModmm, R2_type = "conditional")
+#genet explains .108
+
+r2Nurse <- partR2(nurseryModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "nursery"), nboot = 10)
+summary(r2Nurse)
+
+#same as nursery
+domModmm <- edShDat%>%
+  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
+  lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
+partR2::partR2(domModmm, R2_type = "marginal")
+partR2::partR2(domModmm, R2_type = "conditional")
+#genet explains .108
+
+r2dom <- partR2(domModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom"), nboot = 10)
+summary(r2dom)
+
+mergeR2(r2dom, r2int)
+mergeR2(r2int, r2dom)
+
+anova(intModmm, type="I")
+cld(emmeans(domModmm, specs = "dom"))
+
+#percent explained by logSh
+.5151-(.0931+.3602)+.0931
+
+#percent explained by nursery
+.5430-.3602
+
+#percent explained by do
+.3602
+
+
+
+```
+
 
 ### *Symbiodinium* vs *Durusdinium* thermal tolerance differences
 
 ```{r a versus d comparison}
+
+edShDat%>%
+  group_by(dom)%>%
+  summarize(mean=round(mean(ed50),3), sd=sd(ed50)) %>%
+  as.data.frame(.)
 
 #Run model on just A containing colonies
 aMod <- edShDat%>%
@@ -412,6 +729,7 @@ aRes <-  augment(aMod, data = filter(edShDat, nursery!="MML")) %>%
          edRes=.resid) %>%
   clean_names("lower_camel")
 
+range(aRes$ed50)[2]-range(aRes$ed50)[1]
 #Run model on only D containing colonies
 dMod <- edShDat%>%
   filter(nursery=="MML")%>%
@@ -428,14 +746,23 @@ dRes <-  augment(dMod, data = filter(edShDat, nursery=="MML")) %>%
          edRes=.resid) %>%
   clean_names("lower_camel")
 
+edShDat%>%
+  group_by(dom)%>%
+  get_summary_stats(ed50)
+
 #combine dataframes together
 domRes <- bind_rows(aRes, dRes)
 
+#output dom res
+# domRes%>%
+#   dplyr::select(galaxyCall, nursery, cbassRun=cbassRunX, ed50, ed50Adj) %>%
+# #write_csv(.,"../outputs/ed50outputs.csv")
 #run wilcox test on a vs d
 domRes %>%
-wilcox_test(formula = ed50Adj~dom)
+#wilcox_test(formula = ed50Adj~dom)
+wilcox_test(formula = ed50~dom)
 
-#set confidence interval to determine
+#set confidence interv#set confidence interv#set confidence interval to determine
 setConfidence <- .99
 
 aConfDat <- aRes%>%
@@ -510,8 +837,90 @@ ggplot(domRes, aes(x=ed50Adj))+
    annotate("text",family="Palatino", size=6, x=mean(c(mean(dRes$ed50Adj),mean(aRes$ed50Adj))), y=2.4, label=paste0(round(mean(dConfDat$ed50Adj)-mean(aConfDat$ed50Adj), 2), "0°C"))
   
 #ggsave("../outputs/aVd_histogram.png", width=10)
+setConfidence=.95
+#plot 99% confidence interval histogram with annotations of A versus D corals
+ggplot(domRes, aes(x=ed50))+
+  #this does A line 
+   geom_segment(aes(
+      x = mean(aRes$ed50), 
+      xend = mean(aRes$ed50),
+      y =2,
+      yend =2.5, 
+      
+    ),
+    color="#1B9E77",
+      lwd = 1.5, lty=2
+  )+
+   geom_segment(aes(
+      x = mean(dRes$ed50), 
+      xend = mean(dRes$ed50),
+      y =1,
+      yend =2.5, 
+      
+    ),
+    color="#D95F02",
+      lwd = 1.5, lty=2
+  )+
+  stat_function(fun=~ dnorm(.x, mean(aRes$ed50),  sd(aRes$ed50))*0.2+2, geom="ribbon",
+                mapping = aes(ymin=2,ymax=..y..), fill = "#1B9E77", alpha=0.3, color="black")+
+  stat_function(fun = ~dnorm(.x, mean(dRes$ed50),  sd(dRes$ed50))*0.2+1, geom="ribbon",
+                mapping = aes(ymin=1,ymax=..y..), fill = "#D95F02", alpha=0.3, color="black")+
+  
+  
+  
+  scale_fill_brewer(palette = "Dark2", name="Domiant Symbiont Genera", labels=c("*Symbiodinium*", "*Durusdinium*"), aesthetics = c("color", "fill")) +
+  geom_point(aes(y=reorder(dom, -ed50),fill=dom),alpha=0.3, size=2.5, position = position_jitter(width=0.0, height=0.01,seed = 20), pch=21)+
+  
+  scale_y_discrete(labels=c( "*Durusdinium*", "*Symbiodinium*"), expand = expansion(mult = c(.1, .2)))+
+   scale_x_continuous(limits = c(35, 39.5), breaks = seq(35.5, 39, 0.5))+
+  
+  scale_fill_brewer(palette = "Dark2", name="Domiant Symbiont Genera", labels=c("*Symbiodinium*", "*Durusdinium*"), aesthetics = c("color", "fill")) +
+  theme_present(18) +
+  theme(axis.title.y = element_blank(),axis.text.y = element_markdown(),  legend.text = element_markdown()) +
+   
+  theme(legend.position = "none") +
+  labs(x = "ED50 (°C)", y = NA)+
+  #This one does A range
+   geom_segment(aes(
+      y = 1.9, 
+      yend = 1.9,
+      x =quantile(aRes$ed50,1-setConfidence),
+      xend = quantile(aRes$ed50,setConfidence)
+    ),
+     arrow = arrow(length = unit(0.4,"cm"), ends = "both"), lwd = .8
+  )+
+   #this one does difference between doms
+      geom_segment(aes(
+      y = 2.45, 
+      yend = 2.45,
+      x =mean(aRes$ed50)+.05,
+      xend = mean(dRes$ed50)-.05, 
+      
+    ),
+     arrow = arrow(length = unit(0.4,"cm"), ends = "both"), lwd = .8
+  )+
+   annotate("text",family="Palatino", size=6, x=mean(aRes$ed50), y=1.8, label=paste0(round(quantile(aRes$ed50,setConfidence)-quantile(aRes$ed50, 1-setConfidence), 2), "°C"))+
+   annotate("text",family="Palatino", size=6, x=mean(c(mean(dRes$ed50),mean(aRes$ed50))), y=2.4, label=paste0(round(mean(dRes$ed50)-mean(aRes$ed50), 2), "0°C"))
+
+#ggsave("../outputs/aVd_histogramEd50.png", width=8, height=8)
 
 ```
+
+```{r mixed symbiont model}
+
+mixMod <- edShDat%>%
+  filter(nursery=="MML")%>%
+  glm(ed50~logSh+propD, data=.)
+
+Anova(mixMod)
+
+edShDat%>%
+  filter(nursery=="MML")%>%
+  ggplot(., aes(propD, ed50))+
+  geom_point()
+
+```
+
 
 ### SH Data analysis
 
@@ -576,6 +985,9 @@ t.test(demCRF@B1, mu = 0, conf.level = .05) #changed from 1 to 0
 crftStat = (demCRF@glob.coef[2]-0)/ demCRF@glob.sigma[2]
 crftStat
 
+demingMathCrf <- tibble(nursery="CRF", logSh=crfDeming$logSh, yHat=MCResult.getFitted(demCRF)$y_hat)%>%
+  mutate(fit=logSh*demCRF@para[2,1]+demCRF@para[1,1])
+
 ##RR Deming regression
 rrDeming <- edShDat %>%
   filter(nursery=="RR") %>%
@@ -639,7 +1051,7 @@ demingEqDf <- data.frame(cbind(nursery="MML", demMote@para, tVal=motetStat)) %>%
 
 
 #combine all nursery deming regression figures together
-demingNursery <- bind_rows(demingMathMote, demingMathRR, demingMathUM) %>%
+demingNursery <- bind_rows(demingMathMote, demingMathCrf,demingMathRR, demingMathUM) %>%
   mutate(nursery=factor(nursery, levels = c("UM", "RR", "CRF", "MML")))
 ```
 
@@ -650,12 +1062,13 @@ demingFigDat <- edShDat %>%
   mutate(nursery=factor(nursery, levels = c("UM", "RR", "CRF", "MML")))
 
 ggplot(demingFigDat, aes(10^logSh, ed50))+
-  geom_line(data=demingNursery, aes(y=fit), color="#4292C6", size=1.2, linetype="longdash")+
   geom_point(aes(fill=nursery), pch=21, alpha=0.7, size=3) +
+  geom_line(data=demingNursery, aes(y=fit), color="#4292C6", size=1.2, linetype="longdash")+
+  
   theme_present(18)+
   #log slope
   geom_text(data=demingEqDf, inherit.aes = F, family="Palatino", size=6,
-            aes(x=.4, y=39,label=ifelse(nursery=="CRF", "NS", paste0("Deming Regression:\ny= ",
+            aes(x=.2, y=39,label=ifelse(nursery=="CRF", "NS", paste0("Deming Regression:\ny= ",
                              round(slope, 2), "*log(S:H)+", round(intercept, 2),"\n", sig))), hjust=0.5)+
  
   labs(y="ED50 (°C)", x="S:H", fill="Nursery")+
@@ -668,13 +1081,14 @@ ggplot(demingFigDat, aes(10^logSh, ed50))+
                    guide = "prism_minor",
                 minor_breaks=10^seq(-3, 0, by=0.1))
 
-#ggsave("../outputs/demingNurseries.png", width=18, height=14)
+#ggsave("../outputs/demingNurseries.png", width=14, height=12)
 
 ```
 
 ```{r deming for each symbiont}
 #Get deming data for A containing symbionts
 nonParData <- edShDat %>%
+  #filter(sh<0.34)%>%
   filter(nursery!="MML") 
 
 measError <- sd(nonParData$logSh) ^2/sd(nonParData$ed50) ^2
@@ -756,7 +1170,7 @@ nursStats%<>%mutate(group=str_trim(str_to_upper(group)))
 #Make histogram for Fig 1B of nurseries
 nurseCow <- domRes %>% 
  ggplot(., aes(x = ed50, fill = nursery)) +
-  geom_vline(data=filter(nursStats),  aes(xintercept=mean, color=nursery), size=0.5, show.legend = F, linetype="dashed")+
+  geom_vline(data=filter(nursStats),  aes(xintercept=mean, color=nursery), size=1, show.legend = F, linetype="dashed")+
   geom_density(aes( color=nursery, fill=stage(nursery, after_scale = alpha(fill, .4))), linewidth=2)+
   coord_flip()+
   scale_fill_manual(values = nurseColors, name="Nursery", aesthetics = c("color", "fill")) +
@@ -771,7 +1185,7 @@ nurseCow <- domRes %>%
         axis.text.y=element_blank(),
         axis.ticks.y=element_blank(),
         )+
-  geom_label_repel(family="Palatino", data=filter(nursStats), inherit.aes = F, aes(x=mean, label=group, color=nursery), y=2.5, size=5, show.legend = F, direction="y", label.padding = 0.1, seed = 101, min.segment.length = 100 )
+  geom_label_repel(family="Palatino", data=filter(nursStats), inherit.aes = F, aes(x=mean, label=group, color=nursery), y=2.5, size=6, show.legend = F, direction="y", label.padding = 0.25, seed = 101, min.segment.length = 100, label.size = 1, fontface="bold")
 nurseCow
 #make histogram for SH
 shDf <- shDf%>%
@@ -781,7 +1195,7 @@ shDf <- shDf%>%
 
 shCow <- domRes %>% 
  ggplot(., aes(x = 10^logSh, fill = nursery)) +
-  geom_vline(data=filter(shDf),  aes(xintercept=10^emmean, color=nursery), size=0.5, show.legend = F, linetype="dashed")+
+  geom_vline(data=filter(shDf),  aes(xintercept=10^emmean, color=nursery), size=1, show.legend = F, linetype="dashed")+
   
   geom_density(aes( color=nursery, fill=stage(nursery, after_scale = alpha(fill, .4))), linewidth=2)+
   
@@ -789,7 +1203,7 @@ shCow <- domRes %>%
   theme_present(18)+
   labs(x = "ED50 (°C)", y = "Density", fill="Nursery") +
   theme(legend.text = element_markdown(), legend.position = "right")+
-  geom_label_repel(family="Palatino", data=filter(shDf), inherit.aes = F, aes(x=10^emmean, label=.group, color=nursery), y=2.65, size=5, show.legend = F, direction="x", nudge_x = c(0.05, 0, 0.05, 0.05), label.padding = 0.1, seed = 101, min.segment.length = 100 )+
+  geom_label_repel(family="Palatino", data=filter(shDf), inherit.aes = F, aes(x=10^emmean, label=.group, color=nursery), y=2.65, size=6, show.legend = F, direction="x", nudge_x = c(-0.05, 0, 0.05, 0.05), label.padding = 0.25, seed = 101, min.segment.length = 100, label.size = 1, fontface="bold")+
    scale_x_log10(name="S:H",limits=c(0.001, 1), breaks=10^seq(-3, 0, by=0.5), labels=label_math(10^.x, format=log10),
                    guide = "prism_minor",
                 minor_breaks=10^seq(-3, 0, by=0.1))+
@@ -801,15 +1215,22 @@ shCow <- domRes %>%
   
 shCow
 
-demingCow <- ggplot(edShDat, aes(10^logSh, ed50))+
+demingCow <- edShDat %>%
+  mutate(background=ifelse(propD>0.5&propA>0, "A", background))%>%
+  
+  mutate(symCom=paste0(dom, background),
+         mixed=str_length(symCom)>1)%>%
+ # mutate(dom=ifelse(propD>0.5&propD<0.99, "AD", "D"))%>%
+  ggplot(., aes(10^logSh, ed50))+
+  
+  geom_point(aes(fill=nursery, shape=symCom, color=mixed), alpha=0.7, size=3, show.legend = c(fill=TRUE, shape=FALSE, color=FALSE)) +
   geom_line(data=demingMath, aes(color=dom, y=fit), size=1.2, show.legend = F)+
-  geom_point(aes(fill=nursery, shape=dom), alpha=0.7, size=3, show.legend = c(fill=TRUE, shape=FALSE)) +
   theme_present(18)+
   geom_richtext(data=demingSymEq, inherit.aes = F, family="Palatino", size=6,
             aes(x=x, y=y, color=dom,label=paste0(symbiont)), hjust=0.5, show.legend = F)+
   labs(y="ED50 (°C)" , fill="Dominant symbiont genera")+
   
-  scale_shape_manual(values = c(21, 23), 
+  scale_shape_manual(values = c(23, 25, 6), 
                     labels=c("*Symbiodinium*", "*Durusdinium*"), name="Nursery-Dominant Symbiont Genera")+
   theme(
         legend.position = "right",
@@ -819,13 +1240,15 @@ demingCow <- ggplot(edShDat, aes(10^logSh, ed50))+
   scale_x_log10(name="S:H",limits=c(0.001, 1), breaks=10^seq(-3, 0, by=0.5), labels=label_math(10^.x, format=log10),
                    guide = "prism_minor",
                 minor_breaks=10^seq(-3, 0, by=0.1))+
+  
   scale_y_continuous(minor_breaks = seq(35, 39, 0.5), limits = c(34.5, 39.25),
                      guide = "prism_minor")+
   scale_fill_manual(values=nurseColors,  name="Nursery: Dominant\nSymbiont Genera", breaks = c("MML", "CRF", "RR", "UM"),
                     labels=c("MML: *Durusdinium*", "CRF: *Symbiodinium*", "RR: *Symbiodinium*", "UM: *Symbiodinium*"))+
-  scale_color_brewer(palette = "Dark2")+
+  #scale_color_brewer(palette = "Dark2")+
+  scale_color_manual(values = c("#1B9E77", "#D95F02", "black", "#FB9A99"))+
   guides(fill = guide_legend( 
-    override.aes=list(shape = c(21, 23, 21, 21))))
+    override.aes=list(shape = c(25, 23, 23, 23))))
 
 demingCow
 
@@ -846,32 +1269,51 @@ cowplot::plot_grid(shCow+theme(legend.position = "none"), as_ggplot(get_legend(d
 
 multi.adj <- domRes %>%
   # Filter genotypes present at more than one nursery
-  group_by(geno) %>%
+  group_by(galaxyCall) %>%
   filter(n_distinct(nursery) > 1) %>%
   # If genotype run more than once at a nursery, use mean ed50 within nursery
-  group_by(geno, nursery) %>%
-  summarize(ed50_adj = mean(ed50Adj)) %>%
+  #group_by(geno, nursery) %>%
+  group_by(galaxyCall, nursery)%>%
+  #summarize(ed50_adj = mean(ed50Adj)) %>%
+  summarize(ed50_adj = mean(ed50Adj),
+            ed50=mean(ed50)) %>%
   ungroup()
 
 
 # Reorder genotypes based on mean ed50 across nurseries
 multi.adj <- multi.adj %>%
-  group_by(geno) %>%
-  summarize(geno_mean_ed50 = mean(ed50_adj)) %>%
+  group_by(galaxyCall) %>%
+  summarize(geno_mean_ed50_adj = mean(ed50_adj),
+            geno_mean_ed50=mean(ed50)) %>%
   right_join(multi.adj) %>%
-  mutate(geno = fct_reorder(geno, geno_mean_ed50))
+  mutate(geno = fct_reorder(galaxyCall, geno_mean_ed50))
 
 # Count number of genotypes present at 2, 3, or 4 nurseries
 multi.adj %>%
   count(geno, name = "Present at N nurseries") %>%
   count(`Present at N nurseries`, name = "Number of genotypes")
-  
+
+
+#95th percentile
+confidenceLevel <- .95
+#ed50
+quantile(aRes$ed50,confidenceLevel)
+quantile(multi.adj$ed50, confidenceLevel)
+
+max(multi.adj$geno_mean_ed50)-min(multi.adj$geno_mean_ed50)
+max(multi.adj$geno_mean_ed50_adj)-min(multi.adj$geno_mean_ed50_adj)
+
+multi.adj%>%
+  group_by(nursery)%>%
+  filter(!duplicated(galaxyCall))%>%
+  ungroup()%$%
+  table(nursery)
 
 # Plot ED50adj by genotype
-ggplot(multi.adj, aes(x = geno, y = ed50_adj, color = nursery, shape = nursery, group = geno)) + 
-  geom_point(size = 1.5, alpha = 0.75) + 
-  geom_point(aes(y = geno_mean_ed50), pch = 1, color = "black", stroke = 0.25, size = 2.5)+
-  stat_summary(fun.data = mean_se, geom = "errorbar", color = "black", lwd = 0.25, width = 0) +
+ggplot(multi.adj, aes(x = reorder(geno, geno_mean_ed50_adj), y = ed50_adj, color = nursery, shape = nursery, group = geno)) + 
+  geom_point(size = 3, alpha = 0.75) + 
+  geom_point(aes(y = geno_mean_ed50_adj), pch = 1, color = "black", stroke = 0.25, size = 4)+
+  stat_summary(fun.data = mean_se, geom = "errorbar", color = "black", lwd = 0.5, width = 0) +
   theme_present() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         #axis.text = element_text(size = 8),
@@ -883,7 +1325,25 @@ ggplot(multi.adj, aes(x = geno, y = ed50_adj, color = nursery, shape = nursery, 
   scale_shape_manual(name="Nursery", values=c(15, 16, 17))+
   labs(x = "Genotype", y = "Adjusted ED50 (°C)")
 
-#ggsave(filename = "../outputs/figGenoPairs.png")
+#ggsave(filename = "../outputs/geno_ed50_adj.png", width=10, height=8)
+
+# Plot ED50 by genotype
+ggplot(multi.adj, aes(x = reorder(geno, geno_mean_ed50), y = ed50, color = nursery, shape = nursery, group = geno)) + 
+  geom_point(size = 3, alpha = 0.75) + 
+  geom_point(aes(y = geno_mean_ed50), pch = 1, color = "black", stroke = 0.25, size = 4)+
+  stat_summary(fun.data = mean_se, geom = "errorbar", color = "black", lwd = 0.5, width = 0) +
+  theme_present() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        #axis.text = element_text(size = 8),
+        legend.position = c(0.1, 0.85),
+        #legend.text = element_text(size = 6),
+        #legend.title = element_text(size = 8),
+        legend.key.size = unit(0.3, "cm")) +
+  scale_color_manual(values = nurseColors, name="Nursery") +
+  scale_shape_manual(name="Nursery", values=c(15, 16, 17))+
+  labs(x = "Genotype", y = "ED50 (°C)")
+
+#ggsave(filename = "../outputs/geno_ed50.png", width=10, height=8)
 
 #determine effect of just genotype on ED50 adj
 tidy(anova(lm(ed50_adj ~ geno+nursery, data = multi.adj))) %>%
@@ -891,7 +1351,7 @@ tidy(anova(lm(ed50_adj ~ geno+nursery, data = multi.adj))) %>%
   kable_styling(bootstrap_options = c('striped', 'hover', 'condensed'), full_width = FALSE)
 
 
-genoMod <- glm(ed50_adj~geno+nursery, data=multi.adj)
+genoMod <- glm(ed50_adj~galaxyCall+nursery, data=multi.adj)
 summary(genoMod)
 Anova(genoMod)
 #determine variance explained by genotype
@@ -955,13 +1415,45 @@ cors%>%
   geom_abline(intercept = 0, slope = 1, lty = 2) +
   stat_cor(family="Palatino", size = 4, aes(label=paste("Pearson:",..r.label..,..p.label..,  sep = "~` `~"))) +
   #stat_cor(size = 3, method = "spearman",label.y =37.2, aes(label=paste("Spearman:",..r.label..,..p.label..,  sep = "~` `~"))) +
-  facet_wrap(.xkey ~ .ykey, drop=T, nrow=2, labeller =labeller(.xkey=c("RR"="RR vs.", "RR vs. UM", "UM"="UM vs.") )) +
+  facet_wrap(.xkey ~ .ykey, drop=T, nrow=3, labeller =labeller(.xkey=c("RR"="RR vs.", "RR vs. UM", "UM"="UM vs.") )) +
   #facet_manual(facets = vars(.xkey, .ykey), design = "AB
                #C")+
   theme_present(18) +
   geom_smooth(method="glm", se=F)+
   labs(x = "Adjusted ED50 (°C)", y = "Adjusted ED50 (°C)")
-#ggsave( filename = "../outputs/nurseryCorrelations.png", width=8)
+  #labs(x = "ED50 (°C)", y = "ED50 (°C)")
+#ggsave( filename = "../outputs/nurseryCorrelations_ed50Adj.png", width=6, height=12)
+
+
+#do for ed
+corsEd <- multi.adj %>%
+  select(nursery, geno, ed50) %>%
+  pivot_wider(names_from = nursery, values_from = ed50, values_fn = mean) %>%
+  gatherpairs(CRF, RR, UM) %>%
+  mutate(diff=.xvalue-.yvalue, pair=paste(.xkey, .ykey, sep = "-")) %>%
+  mutate(correctedPairs=case_when(pair=="RR-CRF"~"CRF-RR",
+                                  pair=="UM-CRF"~"CRF-UM",
+                                  pair=="UM-RR"~"RR-UM",
+                                  TRUE~pair))
+
+corsEd%>%
+  #filter(correctedPairs%in%c("RR-CRF", "RR-UM", "CRF-UM"))%>%
+  filter((.xkey=="RR"&.ykey=="UM")|(.xkey=="RR"&.ykey=="CRF")|(.xkey=="UM"&.ykey=="CRF"))%>%
+  droplevels(.)%>%
+  ggplot(., aes(x = .xvalue, y = .yvalue)) +
+  geom_point() + 
+  geom_abline(intercept = 0, slope = 1, lty = 2) +
+  stat_cor(family="Palatino", size = 4, aes(label=paste("Pearson:",..r.label..,..p.label..,  sep = "~` `~"))) +
+  #stat_cor(size = 3, method = "spearman",label.y =37.2, aes(label=paste("Spearman:",..r.label..,..p.label..,  sep = "~` `~"))) +
+  facet_wrap(.xkey ~ .ykey, drop=T, nrow=3, labeller =labeller(.xkey=c("RR"="RR vs.", "RR vs. UM", "UM"="UM vs.") )) +
+  #facet_manual(facets = vars(.xkey, .ykey), design = "AB
+               #C")+
+  theme_present(18) +
+  geom_smooth(method="glm", se=F)+
+  
+  labs(x = "ED50 (°C)", y = "ED50 (°C)")
+
+#ggsave( filename = "../outputs/nurseryCorrelations_ed50.png", width=6, height=12)
 
 ```
 
@@ -975,39 +1467,105 @@ geoEdDat <- domRes%>%
   clean_names("lower_camel")# %>%
   
 #Test latitude
-geoEdDat%>%
+edAdjLat <- geoEdDat%>%
 ggplot(., aes(lat, ed50Adj))+
   geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
   theme_present() +
   geom_smooth(method="glm") +
   stat_cor()+
-  labs(x="Longitude", y="ED50(ºC) Adjusted")
+  labs(x="Latitude", y="ED50 Adjusted (ºC)")
 
-#ggsave("../outputs/latitude.png", width=8)
+#ggsave(edAdjLat, "../outputs/latitude_ed50Adj.png", width=8)
 
 #test longitude
-geoEdDat%>%
+edAdjLong <- geoEdDat%>%
 ggplot(., aes(lon, ed50Adj))+
   geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
   theme_present() +
   geom_smooth(method="glm") +
   stat_cor()+
-  labs(x="Longitude", y="ED50(ºC) Adjusted")
+  labs(x="Longitude", y="ED50 Adjusted (ºC)")
 
-#ggsave("../outputs/longitdue.png", width=8)
+#ggsave(edAdjLong, "../outputs/longitude_ed50Adj.png", width=8)
 
 #Test MMM
-geoEdDat%>%
+edAdjMMM <- geoEdDat%>%
 ggplot(., aes(pathfinderV5, ed50Adj))+
   geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
   theme_present() +
   geom_smooth(method="glm") +
   stat_cor()+
-  labs(x="Mean Monthly Maximum (ºC)", y="ED50(ºC) Adjusted")
+  labs(x="Maximum Monthly Mean (ºC)", y="ED50 Adjusted (ºC)")
 
-#ggsave("../outputs/mmm.png", width=8)
+#ggsave("../outputs/mmm_ed50Adj.png", width=8)
 
+#do the same for ed50
+#Test latitude
+edLat<- geoEdDat%>%
+ggplot(., aes(lat, ed50))+
+  geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
+  theme_present() +
+  geom_smooth(method="glm") +
+  stat_cor()+
+  labs(x="Latitude", y="ED50 (ºC)")
+
+#ggsave("../outputs/latitude_ed50.png", width=8)
+
+
+#test longitude
+edLong <- geoEdDat%>%
+ggplot(., aes(lon, ed50))+
+  geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
+  theme_present() +
+  geom_smooth(method="glm") +
+  stat_cor()+
+  labs(x="Longitude", y="ED50 (ºC)")
+
+#ggsave("../outputs/longitude_ed50.png", width=8)
+
+#Test MMM
+edMMM <- geoEdDat%>%
+ggplot(., aes(pathfinderV5, ed50))+
+  geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
+  theme_present() +
+  geom_smooth(method="glm") +
+  stat_cor()+
+  labs(x="Maximum Monthly Mean (ºC)", y="ED50 (ºC)")
+
+#ggsave("../outputs/mmm_ed50.png", width=8)
+
+
+cowplot::plot_grid(edLat, edAdjLat, edLong, edAdjLong, edMMM, edAdjMMM,
+  labels = c("a", "b", "c", "d", "e", "f"), ncol = 2, label_fontfamily = "Palatino", 
+  label_size = 16, align = "hv")
+
+ggsave("../outputs/environmentalFig.png", height=12, width=8)
 ```
+
+```{r}
+#nursery mmm
+
+geoEdDat %<>% mutate(nurseryMMM=case_when(nursery=="UM"~29.92,
+                                          nursery=="RR"~30.00,
+                                          nursery=="CRF"~30.06), #could do 30 if you want
+                     nurseryLat=case_when(nursery=="UM"~25.676267,
+                                          nursery=="RR"~24.97,
+                                          nursery=="CRF"~24.95)) 
+
+# loc <- bind_rows("UM\n(n = 35)" = c(lon = -80.109067, lat = 25.676267, type="Field"), 
+#                  "CRF\n(n = 78)" = c(lon = -80.43, lat = 24.99, type="Field"), 
+#                  "RR\n(n = 49)" = c(lon = -80.45, lat = 24.97, type="Field"), 
+#                  "MML\n(n = 10)" = c(lon = -81.454431, lat =  24.661609, type="Land"), 
+
+geoEdDat%>%
+ggplot(., aes(nurseryMMM, ed50))+
+  geom_point(size=3, fill="grey50", pch=21, alpha=0.5)+
+  theme_present() +
+  geom_smooth(method="glm") +
+  stat_cor()+
+  labs(x="MMM", y="ED50 (ºC)")
+```
+
 
 ## Make figure 4
 

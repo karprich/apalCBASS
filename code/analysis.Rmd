@@ -401,6 +401,7 @@ edShDat <- left_join(edData, qpcrDat, by=c("genetNumber")) %>%
 ```{r}
 
 #make linear model where small factors that are partially explained come first
+#Model 1
 fullModel <- edShDat%>%
   #filter(galaxyCall %in% multi.adj$galaxyCall)%>%
   #filter(nursery!="MML")%>%
@@ -414,12 +415,15 @@ EMM <- emmeans(fullModel, ~ nursery)# , #cov.reduce = FALSE)
 Anova(fullModel)
 summary(fullModel)
 varExplained(fullModel) #sums to .949 the multiple R2
-cld(emmeans(fullModel, ~galaxyCall))
-library(FSA)
-dunnTest(ed50~dom,
-         data=edShDat,
-         method="bonferroni")
 
+##Ignore
+# cld(emmeans(fullModel, ~galaxyCall))
+# library(FSA)
+# dunnTest(ed50~dom,
+#          data=edShDat,
+#          method="bonferroni")
+
+#model 2
 symModel <- edShDat%>%
   #filter(nursery!="MML")%>%
   #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
@@ -432,105 +436,106 @@ anova(symModel, type="I")
 summary(symModel)
 varExplained(symModel)
 
- 
-fullModel <- edShDat%>%
-  #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-  glm(ed50~logSh+dom+nursery, data=.)
-
-#calcVarPart(fullModel)
-
-#test for statistical significance and determine variance explained
-summary(fullModel)
-anova(fullModel) #Type I Anova
-
-Anova(fullModel)
-varExplained(fullModel)
-
-fullModelGenet <- edShDat%>%
-  lm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-
-summary(fullModelGenet)
-Anova(fullModelGenet)
-varExplained(fullModelGenet)
-
-fullModelNoDom <- edShDat%>%
-  glm(ed50~logSh+nursery+galaxyCall, data=.)
-
-varExplained(fullModelNoDom)
-summary(fullModelNoDom)
-fullModelwDom <- edShDat%>%
-  glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-
-summary(fullModelwDom)
-varExplained(fullModelwDom)
-
-cld(emmeans(fullModelwDom, specs="dom"))
-
-#like genotype effect
-fullModmm <- edShDat%>%
-  lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
-#https://stats.stackexchange.com/questions/560533/how-to-get-the-proportion-variance-explained-by-each-predictor-in-an-lmer-mode
-cld(emmeans(fullModmm, "dom"))
-calcVarPart(fullModmm)
-summary(fullModmm)
-anova(fullModmm, type = "I")
-sum(residuals(fullModmm)^2)
-#total sum of squares
-totalSS <- sum(anova(fullModmm, type="I")[1])+sum(residuals(fullModmm)^2)
-#log sh
-anova(fullModmm, type="I")[1,1]/totalSS
-#dom
-anova(fullModmm, type="I")[2,1]/totalSS
-#nursery
-anova(fullModmm, type="I")[3,1]/totalSS
-
-anova(fullModmm, type="I")[3,1]/totalSS+anova(fullModmm, type="I")[2,1]/totalSS+anova(fullModmm, type="I")[1,1]/totalSS
-anovaTab <- anova(fullModmm, type = "I")
-print(anovaTab)
-varExplained(fullModmm)
-fullModmm@vcov_varpar
-
-library(partR2)
-#r2_partial(fullModmm)
-partR2::partR2(fullModmm, R2_type = "marginal")
-partR2::partR2(fullModmm, R2_type = "conditional")
-anova(fullModmm, type = "I")
-varExplained(fullModmm)
-
-cld(emmeans(fullModmm, specs="nursery"))
-justDomModel <- edShDat%>%
-  glm(ed50~logSh+dom, data=.)
-varExplained(justDomModel)
+#old analysis
+#ignore
+# fullModel <- edShDat%>%
+#   #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+#   glm(ed50~logSh+dom+nursery, data=.)
 # 
-library(lme4)
-library(variancePartition)
-calcVarPart(fullModmm, returnFractions = T)
-
-#https://cran.r-project.org/web/packages/partR2/vignettes/Using_partR2.html#:~:text=So%20Temperature%20and%20Precipitation%20each,Biomass%20(and%20vice%20versa).
-#r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"))
-r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom:nursery"))
-summary(r2)
-cld(emmeans(fullModmm, specs="nursery"))
-#because some genets were represented across multiple nurseries but not interested in testing specifically for the storngest genet so included as fixed
-
-#interaction model and get variance explained
-fullModelInteraction <- edShDat%>%
-  glm(ed50~logSh+nursery, data=.)
-
-summary(fullModelInteraction) #get r-squared
-anova(fullModelInteraction, type="I")
-Anova(fullModelInteraction)
-varExplained(fullModelInteraction)
-
-fullDomInteraction <- edShDat%>%
-  glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-
-varExplained(fullDomInteraction)
-
-dropterm(fullModelInteraction)
+# #calcVarPart(fullModel)
+# 
+# #test for statistical significance and determine variance explained
+# summary(fullModel)
+# anova(fullModel) #Type I Anova
+# 
+# Anova(fullModel)
+# varExplained(fullModel)
+# 
+# fullModelGenet <- edShDat%>%
+#   lm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+# 
+# summary(fullModelGenet)
+# Anova(fullModelGenet)
+# varExplained(fullModelGenet)
+# 
+# fullModelNoDom <- edShDat%>%
+#   glm(ed50~logSh+nursery+galaxyCall, data=.)
+# 
+# varExplained(fullModelNoDom)
+# summary(fullModelNoDom)
+# fullModelwDom <- edShDat%>%
+#   glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+# 
+# summary(fullModelwDom)
+# varExplained(fullModelwDom)
+# 
+# cld(emmeans(fullModelwDom, specs="dom"))
+# 
+# #like genotype effect
+# fullModmm <- edShDat%>%
+#   lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
+# #https://stats.stackexchange.com/questions/560533/how-to-get-the-proportion-variance-explained-by-each-predictor-in-an-lmer-mode
+# cld(emmeans(fullModmm, "dom"))
+# calcVarPart(fullModmm)
+# summary(fullModmm)
+# anova(fullModmm, type = "I")
+# sum(residuals(fullModmm)^2)
+# #total sum of squares
+# totalSS <- sum(anova(fullModmm, type="I")[1])+sum(residuals(fullModmm)^2)
+# #log sh
+# anova(fullModmm, type="I")[1,1]/totalSS
+# #dom
+# anova(fullModmm, type="I")[2,1]/totalSS
+# #nursery
+# anova(fullModmm, type="I")[3,1]/totalSS
+# 
+# anova(fullModmm, type="I")[3,1]/totalSS+anova(fullModmm, type="I")[2,1]/totalSS+anova(fullModmm, type="I")[1,1]/totalSS
+# anovaTab <- anova(fullModmm, type = "I")
+# print(anovaTab)
+# varExplained(fullModmm)
+# fullModmm@vcov_varpar
+# 
+# library(partR2)
+# #r2_partial(fullModmm)
+# partR2::partR2(fullModmm, R2_type = "marginal")
+# partR2::partR2(fullModmm, R2_type = "conditional")
+# anova(fullModmm, type = "I")
+# varExplained(fullModmm)
+# 
+# cld(emmeans(fullModmm, specs="nursery"))
+# justDomModel <- edShDat%>%
+#   glm(ed50~logSh+dom, data=.)
+# varExplained(justDomModel)
+# # 
+# library(lme4)
+# library(variancePartition)
+# calcVarPart(fullModmm, returnFractions = T)
+# 
+# #https://cran.r-project.org/web/packages/partR2/vignettes/Using_partR2.html#:~:text=So%20Temperature%20and%20Precipitation%20each,Biomass%20(and%20vice%20versa).
+# #r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"))
+# r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom:nursery"))
+# summary(r2)
+# cld(emmeans(fullModmm, specs="nursery"))
+# #because some genets were represented across multiple nurseries but not interested in testing specifically for the storngest genet so included as fixed
+# 
+# #interaction model and get variance explained
+# fullModelInteraction <- edShDat%>%
+#   glm(ed50~logSh+nursery, data=.)
+# 
+# summary(fullModelInteraction) #get r-squared
+# anova(fullModelInteraction, type="I")
+# Anova(fullModelInteraction)
+# varExplained(fullModelInteraction)
+# 
+# fullDomInteraction <- edShDat%>%
+#   glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
+# 
+# varExplained(fullDomInteraction)
+# 
+# dropterm(fullModelInteraction)
 ```
 
-```{r}
+```{r mixed models}
 #mixed model
 fullModmm <- edShDat%>%
   lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
@@ -648,10 +653,10 @@ partR2::partR2(nurseModmm1, R2_type = "conditional")
 r2Nurse1 <- partR2(nurseModmm1, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 10)
 summary(r2Nurse1)
 calcVarPart(nurseModmm1)
-`````````
+```
 
-```{r}
-#mixed model way that works based on reviewer 3
+```{r mixed model variance explained}
+#mixed model testing
 #int mod
 intModmm <- edShDat%>%
   mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
@@ -715,6 +720,7 @@ edShDat%>%
   as.data.frame(.)
 
 #Run model on just A containing colonies
+#Model 3
 aMod <- edShDat%>%
   filter(nursery!="MML")%>%
   glm(ed50~logSh+nursery, data=.)

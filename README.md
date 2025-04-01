@@ -32,6 +32,6 @@ from populations outside Florida, these approaches may be the most
 effective interventions to promote the continued survival of Florida’s 
 elkhorn corals in the face of rapid climate change. 
 
-### The files are organized by raw data and contain two code chunks to 
-tidy the data and then analyze derived data. 
+### File organization
+The files are organized by raw data and contain two code chunks to tidy the data and then analyze derived data. 
 

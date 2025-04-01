@@ -398,317 +398,114 @@ edShDat <- left_join(edData, qpcrDat, by=c("genetNumber")) %>%
 
 
 ### Linear model of all main effects
+Statistical Analysis
+
+Use Type I ANOVA (sequential sum of squares, SS) to partition variance in ED50 across:
+
+Log-transformed S:H ratio (logSh). 
+Nursery (nursery). 
+Dominant symbiont type (dom). 
+Genet identity (galaxyCall). 
+
+Since dom is completely confounded with nursery, and therefore statistically inseparable, we fit two models to estimate its potential contribution:  
+
+Model 1 (logSh → Nursery → Dom → Genet) estimates a lower bound for dom’s effect.  
+Model 2 (logSh → Dom → Nursery → Genet) estimates an upper bound for dom’s effect.  
+
 ```{r}
+# Fit Model 1 (logSh → Nursery → Dom → Genet) - Lower Bound for Dom Effect (=zero...)
+#### Assigns variance to nursery before dom, so nursery absorbs all the variation
+df <- edShDat
 
-#make linear model where small factors that are partially explained come first
-#Model 1
-fullModel <- edShDat%>%
-  #filter(galaxyCall %in% multi.adj$galaxyCall)%>%
-  #filter(nursery!="MML")%>%
-  #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-  glm(ed50~logSh+nursery+galaxyCall, data=.)
+model1 <- lm(ed50 ~ logSh + nursery + dom + galaxyCall, data = df)
+anova(model1)  # Type I ANOVA (Sequential SS)
 
-EMM <- emmeans(fullModel, ~ nursery)# , #cov.reduce = FALSE)
- test(pairs(EMM), by = NULL, adjust = "bonferroni")
+# Fit Model 2 (logSh → Dom → Nursery → Genet) - Upper Bound for Dom Effect
+#### Assigns variance to dom before nursery, so nursery picks up only variation that can't be explained by dom
+model2 <- lm(ed50 ~ logSh + dom + nursery + galaxyCall, data = df)
+anova(model2)
 
- anova(fullModel, type="I")
-Anova(fullModel)
-summary(fullModel)
-varExplained(fullModel) #sums to .949 the multiple R2
+# Compute variance explained (SS percentages)
+varExpl <- function (mod) {
+  setNames(anova(mod)$Sum/sum(anova(mod)$Sum), nm = row.names(anova(mod)))
+}
 
-##Ignore
-# cld(emmeans(fullModel, ~galaxyCall))
-# library(FSA)
-# dunnTest(ed50~dom,
-#          data=edShDat,
-#          method="bonferroni")
+# Extract variance explained for Models 1 and 2
+var_explained_model1 <- enframe(varExpl(model1)) %>% mutate(model = "Model 1 (logSh → Nursery → Dom → Genet)")
+var_explained_model2 <- enframe(varExpl(model2)) %>% mutate(model = "Model 2 (logSh → Dom → Nursery → Genet)")
+var_explained <- bind_rows(var_explained_model1, var_explained_model2) %>%
+  complete(name, model, fill = list(value = 0)) %>%
+  mutate(name = factor(name, levels = c("logSh", "nursery", "dom", "galaxyCall", "Residuals")))
 
-#model 2
-symModel <- edShDat%>%
-  #filter(nursery!="MML")%>%
-  #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-  lm(ed50~logSh+dom, data=.)
-cld(emmeans(symModel, ~dom))
-
-Anova(symModel)
-anova(symModel, type="I")
-
-summary(symModel)
-varExplained(symModel)
-
-#old analysis
-#ignore
-# fullModel <- edShDat%>%
-#   #glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-#   glm(ed50~logSh+dom+nursery, data=.)
-# 
-# #calcVarPart(fullModel)
-# 
-# #test for statistical significance and determine variance explained
-# summary(fullModel)
-# anova(fullModel) #Type I Anova
-# 
-# Anova(fullModel)
-# varExplained(fullModel)
-# 
-# fullModelGenet <- edShDat%>%
-#   lm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-# 
-# summary(fullModelGenet)
-# Anova(fullModelGenet)
-# varExplained(fullModelGenet)
-# 
-# fullModelNoDom <- edShDat%>%
-#   glm(ed50~logSh+nursery+galaxyCall, data=.)
-# 
-# varExplained(fullModelNoDom)
-# summary(fullModelNoDom)
-# fullModelwDom <- edShDat%>%
-#   glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-# 
-# summary(fullModelwDom)
-# varExplained(fullModelwDom)
-# 
-# cld(emmeans(fullModelwDom, specs="dom"))
-# 
-# #like genotype effect
-# fullModmm <- edShDat%>%
-#   lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
-# #https://stats.stackexchange.com/questions/560533/how-to-get-the-proportion-variance-explained-by-each-predictor-in-an-lmer-mode
-# cld(emmeans(fullModmm, "dom"))
-# calcVarPart(fullModmm)
-# summary(fullModmm)
-# anova(fullModmm, type = "I")
-# sum(residuals(fullModmm)^2)
-# #total sum of squares
-# totalSS <- sum(anova(fullModmm, type="I")[1])+sum(residuals(fullModmm)^2)
-# #log sh
-# anova(fullModmm, type="I")[1,1]/totalSS
-# #dom
-# anova(fullModmm, type="I")[2,1]/totalSS
-# #nursery
-# anova(fullModmm, type="I")[3,1]/totalSS
-# 
-# anova(fullModmm, type="I")[3,1]/totalSS+anova(fullModmm, type="I")[2,1]/totalSS+anova(fullModmm, type="I")[1,1]/totalSS
-# anovaTab <- anova(fullModmm, type = "I")
-# print(anovaTab)
-# varExplained(fullModmm)
-# fullModmm@vcov_varpar
-# 
-# library(partR2)
-# #r2_partial(fullModmm)
-# partR2::partR2(fullModmm, R2_type = "marginal")
-# partR2::partR2(fullModmm, R2_type = "conditional")
-# anova(fullModmm, type = "I")
-# varExplained(fullModmm)
-# 
-# cld(emmeans(fullModmm, specs="nursery"))
-# justDomModel <- edShDat%>%
-#   glm(ed50~logSh+dom, data=.)
-# varExplained(justDomModel)
-# # 
-# library(lme4)
-# library(variancePartition)
-# calcVarPart(fullModmm, returnFractions = T)
-# 
-# #https://cran.r-project.org/web/packages/partR2/vignettes/Using_partR2.html#:~:text=So%20Temperature%20and%20Precipitation%20each,Biomass%20(and%20vice%20versa).
-# #r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"))
-# r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom:nursery"))
-# summary(r2)
-# cld(emmeans(fullModmm, specs="nursery"))
-# #because some genets were represented across multiple nurseries but not interested in testing specifically for the storngest genet so included as fixed
-# 
-# #interaction model and get variance explained
-# fullModelInteraction <- edShDat%>%
-#   glm(ed50~logSh+nursery, data=.)
-# 
-# summary(fullModelInteraction) #get r-squared
-# anova(fullModelInteraction, type="I")
-# Anova(fullModelInteraction)
-# varExplained(fullModelInteraction)
-# 
-# fullDomInteraction <- edShDat%>%
-#   glm(ed50~logSh+dom+nursery+galaxyCall, data=.)
-# 
-# varExplained(fullDomInteraction)
-# 
-# dropterm(fullModelInteraction)
+# Print Results
+var_explained %>%
+  arrange(name) %>%
+  pivot_wider()
 ```
 
-```{r mixed models}
-#mixed model
-fullModmm <- edShDat%>%
-  lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
+So dom could explain 0% (model 1), if it was actually just a nursery effect.  
+Or, dom could explain up to 36.2% (model 2), if it is fully a dom effect.  
+So is it more likely to be a nursery effect or a dom effect?  
 
-anova(fullModmm, type="I")
-Anova(fullModmm)
+To determine whether MML’s high ED50 values represent just another nursery effect or something else, we:  
 
-library(partR2)
-#r2_partial(fullModmm)
-partR2::partR2(fullModmm, R2_type = "marginal")
-partR2::partR2(fullModmm, R2_type = "conditional")
-#cite cunning-explain to reviewer that we try a bunch of different ways, 
+Compute the mean ED50 difference between MML and other nurseries.  
+Compare this to the typical ED50 difference between non-MML nurseries.  
+Performed a one-sample t-test to test whether MML’s effect is significantly larger than expected based on normal nursery variation.  
 
-#https://pmc.ncbi.nlm.nih.gov/articles/PMC8162244/#:~:text=While%20part%20R2%20quantifies,and%20jointly%20with%20other%20predictors.
-r2 <- partR2(fullModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 100)
-summary(r2)
-cld(emmeans(fullModmm, specs="nursery"))
-cld(emmeans(fullModmm, specs="dom"))
+```{r}
+# Compute all pairwise differences between non-MML nurseries
+nurseries <- c("UM", "RR", "CRF")
+pairwise_diffs <- c()
 
-#int mod
-intModmm <- edShDat%>%
-  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
-  lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
-partR2::partR2(intModmm, R2_type = "marginal")
-partR2::partR2(intModmm, R2_type = "conditional")
+for (i in 1:(length(nurseries) - 1)) {
+  for (j in (i + 1):length(nurseries)) {
+    nursery1 <- nurseries[i]
+    nursery2 <- nurseries[j]
+    mean_diff <- abs(mean(filter(df, nursery == nursery1) %>% pull(ed50)) - 
+                     mean(filter(df, nursery == nursery2) %>% pull(ed50)))
+    pairwise_diffs <- c(pairwise_diffs, mean_diff)
+  }
+}
 
-calcVarPart(intModmm, returnFractions = F)
+# Compute mean and standard deviation of typical nursery differences
+mean_pairwise_diff <- mean(pairwise_diffs)
+std_pairwise_diff <- sd(pairwise_diffs)
+n_pairs <- length(pairwise_diffs)  # Number of pairwise comparisons
 
-sum(residuals(intModmm)^2)
-anova(intModmm, type="I")
-anova(intModmm, type="II")[1]/(sum(anova(intModmm, type="II")[1])+sum(residuals(intModmm)^2))
-sum(residuals(intModmm)^2)/(sum(anova(intModmm, type="II")[1])+sum(residuals(intModmm)^2))
-summary(intModmm)
+# Compute observed difference between MML and other nurseries
+mml_mean_ed50 <- mean(filter(df, nursery == "MML") %>% pull(ed50))
+other_nurseries_mean_ed50 <- mean(filter(df, nursery != "MML") %>% pull(ed50))
+observed_diff <- mml_mean_ed50 - other_nurseries_mean_ed50
 
+# Perform one-sample t-test
+t_stat <- (observed_diff - mean_pairwise_diff) / (std_pairwise_diff / sqrt(n_pairs))
+p_value <- 1 - pt(t_stat, df=n_pairs-1)  # One-tailed test
 
-
-r2int <- partR2(intModmm, R2_type = "marginal", data=edShDat, partvars = c("dom:nursery"), nboot = 100)
-summary(r2int)
-
-mergeR2(r2int, r2)
-
-nurseModmm1 <- edShDat%>%
-  mutate(nursery=as.numeric(factor(nursery, levels=c("MML", "CRF", "RR", "UM"))),
-                            dom=as.numeric(factor(dom, levels=c("D", "A")))) %>%
-  
-  lmer(ed50~logSh+dom+nursery+(1|galaxyCall), data=.)
-
-anova(nurseModmm1, type="I")
-Anova(nurseModmm1)
-
-
-partR2::partR2(nurseModmm1, R2_type = "marginal")
-partR2::partR2(nurseModmm1, R2_type = "conditional")
-
-r2Nurse1 <- partR2(nurseModmm1, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 10)
-summary(r2Nurse1)
-calcVarPart(nurseModmm1)
-
-r2Nurse1a <- partR2(nurseModmm1, data=edShDat, partbatch = list(logSh=c('logSh', "logSh:nursery"),
-                                                               nursery=c('nursery')), nboot = 10)
-
-summary(r2Nurse1a)
-
-nurseModmm2 <- edShDat%>%
-    mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
-  lmer(ed50~logSh+nursery+(1|galaxyCall), data=.)
-
-anova(nurseModmm2, type="I")
-Anova(nurseModmm2)
-
-calcVarPart(nurseModmm2)
-
-partR2::partR2(nurseModmm2, R2_type = "marginal")
-partR2::partR2(nurseModmm2, R2_type = "conditional")
-
-r2Nurse2 <- partR2(nurseModmm2, R2_type = "marginal", data=edShDat, partvars = c("logSh", "nursery"), nboot = 100)
-summary(r2Nurse2)
-
-mergeR2(r2Nurse1, r2Nurse2)
-
-domModmm <- edShDat%>%
-  lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
-
-summary(domModmm)
-partR2::partR2(domModmm, R2_type = "marginal")
-partR2::partR2(domModmm, R2_type = "conditional")
-
-domR2 <- partR2(domModmm, data=edShDat, partvars=c("logSh", "dom"), nboot = 100)
-summary(domR2)
-
-mergeR2(domR2, r2Nurse2)
-
-noLogMod <- edShDat%>%
-  lmer(ed50~nursery+(1|galaxyCall), data=.)
-
-calcVarPart(noLogMod)
-
-
-Anova(domModmm, nurseModmm2)
-
-#change factors to numeric
-nurseModmm1 <- edShDat%>%
-  mutate(nursery=as.numeric(factor(nursery, levels=c("MML", "CRF", "RR", "UM"))),
-                            dom=as.numeric(factor(dom, levels=c("D", "A")))) %>%
-  
-  lmer(ed50~logSh+dom+nursery+(1|galaxyCall), data=.)
-
-anova(nurseModmm1, type="I")
-Anova(nurseModmm1)
-
-
-partR2::partR2(nurseModmm1, R2_type = "marginal")
-partR2::partR2(nurseModmm1, R2_type = "conditional")
-
-r2Nurse1 <- partR2(nurseModmm1, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom", "nursery"), nboot = 10)
-summary(r2Nurse1)
-calcVarPart(nurseModmm1)
+# Print results
+print(paste("Mean pairwise difference between non-MML nurseries:", mean_pairwise_diff))
+print(paste("Standard deviation of pairwise differences:", std_pairwise_diff))
+print(paste("Observed difference in ED50 (MML vs. other nurseries):", observed_diff))
+print(paste("t-statistic:", t_stat))
+print(paste("p-value:", p_value))
 ```
 
-```{r mixed model variance explained}
-#mixed model testing
-#int mod
-intModmm <- edShDat%>%
-  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
-  lmer(ed50~logSh+dom:nursery+(1|galaxyCall), data=.)
-partR2::partR2(intModmm, R2_type = "marginal")
-partR2::partR2(intModmm, R2_type = "conditional")
-#genet explains .108
+MML’s effect (1.90 ED50 units) is ~3.2× larger than the typical nursery difference (~0.59 ED50 units).  
+The one-sample t-test confirmed that MML’s effect is significantly larger than typical nursery variation (p = 0.01698).  
+Dom explains between 0% (Model 1) and 36.23% (Model 2) of variance.  
+Since MML’s effect is much larger than normal nursery variation, this suggests that either dom or a unique MML environment is responsible. This, plus the fact that higher tolerance is consistent with and exactly what we would expect from Durusdinium, we conclude it is more likely a dom effect than a nursery effect.  
 
-r2int <- partR2(intModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom:nursery"), nboot = 10)
-summary(r2int)
+So, we present the variance percentages from Model 2 in the Table:
 
-#same as nursery
-nurseryModmm <- edShDat%>%
-  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
-  lmer(ed50~logSh+nursery+(1|galaxyCall), data=.)
-partR2::partR2(nurseryModmm, R2_type = "marginal")
-partR2::partR2(nurseryModmm, R2_type = "conditional")
-#genet explains .108
-
-r2Nurse <- partR2(nurseryModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "nursery"), nboot = 10)
-summary(r2Nurse)
-
-#same as nursery
-domModmm <- edShDat%>%
-  mutate(dom=as.factor(dom), nursery=as.factor(nursery), galaxyCall=as.factor(galaxyCall))%>%
-  lmer(ed50~logSh+dom+(1|galaxyCall), data=.)
-partR2::partR2(domModmm, R2_type = "marginal")
-partR2::partR2(domModmm, R2_type = "conditional")
-#genet explains .108
-
-r2dom <- partR2(domModmm, R2_type = "marginal", data=edShDat, partvars = c("logSh", "dom"), nboot = 10)
-summary(r2dom)
-
-mergeR2(r2dom, r2int)
-mergeR2(r2int, r2dom)
-
-anova(intModmm, type="I")
-cld(emmeans(domModmm, specs = "dom"))
-
-#percent explained by logSh
-.5151-(.0931+.3602)+.0931
-
-#percent explained by nursery
-.5430-.3602
-
-#percent explained by do
-.3602
-
-
-
+```{r}
+var_explained_model2 %>%
+  select(1:2) %>%
+  pivot_wider() %>%
+  knitr::kable()
 ```
 
+Conclusion
+While dom could explain up to 36.23% of variance, it is statistically inseparable from nursery effects. However, MML’s ED50 values are significantly higher than normal nursery variation, strongly suggesting that either dom or a unique MML effect is responsible.
 
 ### *Symbiodinium* vs *Durusdinium* thermal tolerance differences
 
@@ -720,7 +517,6 @@ edShDat%>%
   as.data.frame(.)
 
 #Run model on just A containing colonies
-#Model 3
 aMod <- edShDat%>%
   filter(nursery!="MML")%>%
   glm(ed50~logSh+nursery, data=.)
@@ -769,7 +565,7 @@ domRes %>%
 wilcox_test(formula = ed50~dom)
 
 #set confidence interv#set confidence interv#set confidence interval to determine
-setConfidence <- .99
+setConfidence <- .95
 
 aConfDat <- aRes%>%
   filter(ed50Adj<=quantile(ed50Adj,setConfidence)&ed50Adj>=quantile(ed50Adj,1-setConfidence))
@@ -778,71 +574,7 @@ dConfDat <- dRes%>%
   filter(ed50Adj<=quantile(ed50Adj,setConfidence)&ed50Adj>=quantile(ed50Adj,1-setConfidence))
 
 
-#plot 99% confidence interval histogram with annotations of A versus D corals
-ggplot(domRes, aes(x=ed50Adj))+
-  #this does A line 
-   geom_segment(aes(
-      x = mean(aConfDat$ed50Adj), 
-      xend = mean(aConfDat$ed50Adj),
-      y =2,
-      yend =2.5, 
-      
-    ),
-    color="#1B9E77",
-      lwd = 1.5, lty=2
-  )+
-   geom_segment(aes(
-      x = mean(dConfDat$ed50Adj), 
-      xend = mean(dConfDat$ed50Adj),
-      y =1,
-      yend =2.5, 
-      
-    ),
-    color="#D95F02",
-      lwd = 1.5, lty=2
-  )+
-  stat_function(fun=~ dnorm(.x, mean(aRes$ed50Adj),  sd(aRes$ed50Adj))*0.2+2, geom="ribbon",
-                mapping = aes(ymin=2,ymax=..y..), fill = "#1B9E77", alpha=0.3, color="black")+
-  stat_function(fun = ~dnorm(.x, mean(dRes$ed50Adj),  sd(dRes$ed50Adj))*0.2+1, geom="ribbon",
-                mapping = aes(ymin=1,ymax=..y..), fill = "#D95F02", alpha=0.3, color="black")+
-  
-  
-  
-  scale_fill_brewer(palette = "Dark2", name="Domiant Symbiont Genera", labels=c("*Symbiodinium*", "*Durusdinium*"), aesthetics = c("color", "fill")) +
-  geom_point(aes(y=reorder(dom, -ed50Adj),fill=dom),alpha=0.3, size=2.5, position = position_jitter(width=0.0, height=0.01,seed = 20), pch=21)+
-  
-  scale_y_discrete(labels=c( "*Durusdinium*", "*Symbiodinium*"), expand = expansion(mult = c(.1, .2)))+
-   scale_x_continuous(limits = c(35, 39.5), breaks = seq(35.5, 39, 0.5))+
-  
-  scale_fill_brewer(palette = "Dark2", name="Domiant Symbiont Genera", labels=c("*Symbiodinium*", "*Durusdinium*"), aesthetics = c("color", "fill")) +
-  theme_present(18) +
-  theme(axis.title.y = element_blank(),axis.text.y = element_markdown(),  legend.text = element_markdown()) +
-   
-  theme(legend.position = "none") +
-  labs(x = "ED50 Adjusted (°C)", y = NA)+
-  #This one does A range
-   geom_segment(aes(
-      y = 1.9, 
-      yend = 1.9,
-      x =quantile(aRes$ed50Adj,1-setConfidence),
-      xend = quantile(aRes$ed50Adj,setConfidence)
-    ),
-     arrow = arrow(length = unit(0.4,"cm"), ends = "both"), lwd = .8
-  )+
-   #this one does difference between doms
-      geom_segment(aes(
-      y = 2.45, 
-      yend = 2.45,
-      x =mean(aConfDat$ed50Adj)+.05,
-      xend = mean(dConfDat$ed50Adj)-.05, 
-      
-    ),
-     arrow = arrow(length = unit(0.4,"cm"), ends = "both"), lwd = .8
-  )+
-   annotate("text",family="Palatino", size=6, x=mean(aRes$ed50Adj), y=1.8, label=paste0(round(quantile(aRes$ed50Adj,setConfidence)-quantile(aRes$ed50Adj, 1-setConfidence), 2), "0°C"))+
-   annotate("text",family="Palatino", size=6, x=mean(c(mean(dRes$ed50Adj),mean(aRes$ed50Adj))), y=2.4, label=paste0(round(mean(dConfDat$ed50Adj)-mean(aConfDat$ed50Adj), 2), "0°C"))
-  
-#ggsave("../outputs/aVd_histogram.png", width=10)
+
 setConfidence=.95
 #plot 99% confidence interval histogram with annotations of A versus D corals
 ggplot(domRes, aes(x=ed50))+

@@ -2,11 +2,11 @@
 This repository contains data and code for the manuscript: 
 
 ## Heat-tolerant algal symbionts may prevent extirpation of the threatened elkhorn coral, Acropora palmata, in Florida during intensifying marine heatwaves 
-by Richard Karp and co-authors.
+by **Richard Karp** and co-authors.
 
 ## Abstract
 
-The elkhorn coral, Acropora palmata, was historically a major 
+The elkhorn coral, _Acropora palmata_, was historically a major 
 reef-building species in the Caribbean, but has suffered devastating 
 declines in recent decades. Despite significant restoration efforts in 
 Florida, the marine heatwave of 2023 caused severe bleaching and mortality 
@@ -15,10 +15,10 @@ we evaluated the variation in heat tolerance among Florida’s A. palmata
 population prior to the event. In 2022, we used rapid acute heat stress 
 assays to assess the thermal tolerance of 172 adult colonies (125 unique 
 genets) from four nurseries. We found variation in thermal tolerance 
-(4.17oC range in ED50) that was attributed to nursery location (17.2% of 
+(4.17^o^C range in ED50) that was attributed to nursery location (17.2% of 
 variation), genet (25.9%), and symbiont abundance (15.6%). Algal symbiont 
 type, however, was the strongest predictor of thermal performance, with 
-the few (n=10) colonies hosting Durusdinium being, on average, 1.9oC more 
+the few (n=10) colonies hosting Durusdinium being, on average, 1.9^o^C more 
 thermally tolerant than corals hosting Symbiodinium. This difference would 
 have decreased the effective heat stress accumulation during the 2023 
 event by ~92%. Therefore, despite considerable variation in thermal 

@@ -15,10 +15,10 @@ we evaluated the variation in heat tolerance among Florida’s A. palmata
 population prior to the event. In 2022, we used rapid acute heat stress 
 assays to assess the thermal tolerance of 172 adult colonies (125 unique 
 genets) from four nurseries. We found variation in thermal tolerance 
-(4.17^o^C range in ED50) that was attributed to nursery location (17.2% of 
+(4.17<sup>o</sup>C range in ED50) that was attributed to nursery location (17.2% of 
 variation), genet (25.9%), and symbiont abundance (15.6%). Algal symbiont 
 type, however, was the strongest predictor of thermal performance, with 
-the few (n=10) colonies hosting Durusdinium being, on average, 1.9^o^C more 
+the few (n=10) colonies hosting Durusdinium being, on average, 1.9<sup>o</sup>C more 
 thermally tolerant than corals hosting Symbiodinium. This difference would 
 have decreased the effective heat stress accumulation during the 2023 
 event by ~92%. Therefore, despite considerable variation in thermal 
